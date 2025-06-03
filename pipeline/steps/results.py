@@ -8,6 +8,7 @@ import os
 import pickle
 from typing import Optional
 import datetime
+import matplotlib.pyplot as plt
 
 class EvaluatePredictionsSteps(PipelineStep):
 
@@ -46,6 +47,7 @@ class PlotFeatureImportanceStep(PipelineStep):
         if isinstance(model, lgb.Booster):
             # Si el modelo es un Booster de LightGBM
             lgb.plot_importance(model, max_num_features=20)
+            plt.show()
             # creo el df de importancia
             importance['feature'] = model.feature_name()
             importance['importance'] = model.feature_importance(importance_type='gain')

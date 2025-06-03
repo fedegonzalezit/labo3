@@ -36,6 +36,7 @@ class SplitDataFrameStep(PipelineStep):
 class PrepareXYStep(PipelineStep):
     def execute(self, df, train_index, test_index) -> None:
         columns = df.columns
+        #features = [col for col in columns if col != "fecha" and "target" not in col]
         features = [col for col in columns if col != "fecha" and "target" not in col]
         targets = [col for col in columns if "target" in col]
         X_train = df.loc[train_index][features]
@@ -48,7 +49,7 @@ class PrepareXYStep(PipelineStep):
             "X_train": X_train,
             "y_train": y_train,
             "X_test": X_test,
-            "y_test": y_test
+            "y_test": y_test,
         }
 
 
@@ -107,9 +108,11 @@ class PredictStep(PipelineStep):
 
 
 class IntegratePredictionsStep(PipelineStep):
-    def execute(self, df, predictions, test_index, target_col, needs_integration=False, integration_function=None) -> Dict:
+    def execute(self, df, predictions, test_index, target_col, needs_integration=False) -> Dict:
         if not needs_integration:
-            return
+            return {
+                "y_test": df.loc[test_index, ["target"]]
+            }
         # crea un nuevo dataframe que es la suma de todas las columnas de predicciones
         if predictions.ndim == 1:
             predictions_sum = pd.Series(predictions, index=test_index, name='predictions')

@@ -4,3 +4,5 @@ experiments
 *.parquet
 *.txt
 *.gz
+*.pyc
+*.pickle

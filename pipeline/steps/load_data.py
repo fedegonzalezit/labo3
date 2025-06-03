@@ -17,6 +17,19 @@ class LoadDataFrameStep(PipelineStep):
         return {"df": df}
     
 
+class LoadDataFrameFromPickleStep(PipelineStep):
+    """
+    Example step that loads a DataFrame from a pickle file.
+    """
+    def __init__(self, path: str, name: Optional[str] = None):
+        super().__init__(name)
+        self.path = path
+
+    def execute(self) -> None:
+        df = pd.read_pickle(self.path)
+        return {"df": df}
+    
+    
 class LoadScalerStep(PipelineStep):
     def __init__(self, artifact_name: str, file_name: str, name: Optional[str] = None):
         super().__init__(name)

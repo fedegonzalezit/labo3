@@ -5,6 +5,7 @@ import numpy as np
 from scipy.stats import linregress
 
 
+
 class CreateSerieIdStep(PipelineStep):
 
     def execute(self, df: pd.DataFrame) -> Dict:
@@ -19,7 +20,8 @@ class CreateSerieIdStep(PipelineStep):
         df["serieID"] = df["serieID"].astype("uint32")
         return {"df": df}
     
-    
+
+
 class DropMinSerieMonthStep(PipelineStep):
     def __init__(self, name: Optional[str] = None, months: int = 3):
         super().__init__(name)

@@ -3,16 +3,17 @@ import pandas as pd
 import lightgbm as lgb
 from typing import Dict, Optional
 from pipeline import Pipeline, PipelineStep
+from sklearn.neural_network import MLPRegressor
 
 LGB_DEFAULT_PARAMS = {
     "objective": "regression",
     "boosting_type": "gbdt",
-    "num_leaves": 1024,
+    "num_leaves": 31,
     "learning_rate": 0.01,
     "feature_fraction": 0.7,
     "bagging_fraction": 0.7,
     "bagging_freq": 5,
-    "n_estimators": 750,
+    "n_estimators": 1500,
     "verbose": -1
 }
 
@@ -48,6 +49,62 @@ class CustomMetricAutoML:
         
         return error, {"total_error": error}
 
+from sklearn.model_selection import KFold, cross_val_score
+# import deepclone
+from copy import deepcopy
+
+class EnsambleKFoldWrapper:
+    # esta funcion se inicializa con un modelo, los clona y entra N modelos, uno por cada kfold.
+    # cuando hace la prediccion, promedia las predicciones de los N modelos.
+    def __init__(self, model, n_splits=5):
+        self.model = model
+        self.n_splits = n_splits
+        self.models = []
+
+    def fit(self, X, y, X_val, y_val):
+        kf = KFold(n_splits=self.n_splits, shuffle=True, random_state=42)
+        for train_index, val_index in kf.split(X):
+            X_train = X.iloc[train_index]
+            y_train = y.iloc[train_index]
+            model_clone = deepcopy(self.model)  # Clona el modelo para cada fold
+            model_clone.fit(X_train, y_train, X_val, y_val)
+            self.models.append(model_clone)
+        return self
+    def predict(self, X):
+        if not self.models:
+            raise ValueError("No models have been trained yet.")
+        predictions = np.mean([model.predict(X) for model in self.models], axis=0)
+        return pd.Series(predictions, index=X.index, name='predictions')
+
+
+class XGBOOSTPipelineModel:
+    def __init__(self, params: Dict = None):
+        self.params = params or {}
+        self.model = None
+
+    def set_params(self, **params):
+        self.params.update(params)
+
+    def fit(self, X_train, y_train, X_eval, y_eval):
+        from xgboost import XGBRegressor
+        if isinstance(y_train, pd.DataFrame) and y_train.shape[1] > 1:
+            raise ValueError("y_train must be a Series for single-target regression.")
+        self.model = XGBRegressor(**self.params, enable_categorical=True)
+        eval_sets = []
+        y_eval = y_eval.dropna()
+        if not y_eval.empty:
+            X_eval = X_eval.loc[y_eval.index]
+            eval_sets = [(X_eval, y_eval)]
+        y_train = y_train.dropna()
+        X_train = X_train.loc[y_train.index]
+        self.model.fit(X_train, y_train, eval_set=eval_sets, verbose=True)
+        return self
+    
+    def predict(self, X):
+        if self.model is None:
+            raise ValueError("Model has not been trained yet.")
+        return pd.Series(self.model.predict(X), index=X.index, name='predictions')
+
 
 class LGBPipelineModel:
     def __init__(self, params: Dict = LGB_DEFAULT_PARAMS):
@@ -82,9 +139,12 @@ class LGBBase:
         train_data = lgb.Dataset(X_train, label=y_train, categorical_feature=cat_features)
         y_eval = y_eval.dropna()
         # si y_val esta vacio, no creo el dataset de evaluacion
+        print(f"Validation set size: {len(y_eval)}")
         if y_eval.empty:
             return train_data, None
         X_eval = X_eval.loc[y_eval.index]
+        print(f"X_eval first 5 rows:\n{X_eval.head()}")
+        print(f"y_eval first 5 rows:\n{y_eval.head()}")
         eval_data =lgb.Dataset(X_eval, label=y_eval, reference=train_data, categorical_feature=cat_features)
         return train_data, eval_data
       
@@ -153,14 +213,23 @@ class LGBPipelineSingleTargetModel(LGBBase):
     
     
 class TrainModelStep(PipelineStep):
-    def __init__(self, model_cls = LGBPipelineModel, name: Optional[str] = None):
+    def __init__(self, model_cls = LGBPipelineModel, name: Optional[str] = None, params={}, folds=0):
         super().__init__(name)
         self.model_cls = model_cls
+        self.params = params
+        self.folds = folds  # Number of folds for cross-validation, if applicable
 
     def execute(self, df, X_test, y_test, X_train, y_train, params={}) -> None:
-        params = params or LGB_DEFAULT_PARAMS
-        model = self.model_cls(params)
-        model.fit(X_train, y_train, X_test, y_test)
+        params = params or self.params
+        if self.folds > 1:
+            model = self.model_cls()
+            model.set_params(**params)
+            model = EnsambleKFoldWrapper(model, n_splits=self.folds)
+            model.fit(X_train, y_train, X_test, y_test)
+        else:
+            model = self.model_cls()
+            model.set_params(**params)
+            model.fit(X_train, y_train, X_test, y_test)
         return {"model": model}
     
 
@@ -222,161 +291,55 @@ class TrainModelLGBStep(PipelineStep):
         )
         return {"model": model}
     
-"""
 
-class TrainModelAutoMLStep(PipelineStep):
-    def __init__(self, train_eval_sets = {}, time_budget: int = 100, products_proportion: float = 1.0, name: Optional[str] = None):
-        super().__init__(name)
-        self.time_budget = time_budget
-        if not train_eval_sets:
-            train_eval_sets = {
-                "X_train": "X_train",
-                "y_train": "y_train",
-                "X_eval": "X_eval",
-                "y_eval": "y_eval",
-                "eval_data": "eval_data",
-            }
-        self.train_eval_sets = train_eval_sets
-        self.products_proportion = products_proportion
-
-    def execute(self, pipeline: Pipeline) -> None:
-        X_train = pipeline.get_artifact(self.train_eval_sets["X_train"])
-        y_train = pipeline.get_artifact(self.train_eval_sets["y_train"])
-        X_eval = pipeline.get_artifact(self.train_eval_sets["X_eval"])
-        y_eval = pipeline.get_artifact(self.train_eval_sets["y_eval"])
-        df_eval = pipeline.get_artifact(self.train_eval_sets["eval_data"])
-
-        # para que sea mas rapido si self.products_proportion < 1.0, tomo una muestra de los productos
-        if self.products_proportion < 1.0:
-            unique_products = X_train['product_id'].unique()
-            sample_size = int(len(unique_products) * self.products_proportion)
-            sampled_products = np.random.choice(unique_products, size=sample_size, replace=False)
-            X_train = X_train[X_train['product_id'].isin(sampled_products)]
-            y_train = y_train[X_train.index]
-            X_eval = X_eval[X_eval['product_id'].isin(sampled_products)]
-            y_eval = y_eval[X_eval.index]
-            df_eval = df_eval[df_eval['product_id'].isin(sampled_products)]
-        
-        automl = AutoML()
-        metric = CustomMetricAutoML(df_eval, product_id_col='product_id')
-        automl_params = {
-            "time_budget": self.time_budget,
-            "task": "regression",
-            "metric": "rmse",
-            "eval_method": "holdout",
-            #"estimator_list": ["lgbm", "xgboost", "catboost"],
-            "estimator_list": ["lgbm"],            
+class MLPPipelineModel:
+    def __init__(self, params: Dict = None):
+        self.params = params or {
+            "hidden_layer_sizes": (256, 128, 64, 32),
+            "activation": "relu",
+            "solver": "adam",
+            "alpha": 0.0001,
+            "batch_size": "auto",
+            "learning_rate": "adaptive",
+            "learning_rate_init": 0.001,
+            "max_iter": 500,
+            "early_stopping": True,
+            "random_state": 42,
+            "verbose": True,
         }
-            
-        automl.fit(
-            X_train=X_train,
-            y_train=y_train,
-            X_val=X_eval,
-            y_val=y_eval,
-            **automl_params
-        )
-        # Save the model
-        automl_ml_best_model = automl.model.estimator
-        automl_best_params = automl_ml_best_model.get_params()
-        return {
-            "automl_best_model": automl_ml_best_model,
-            "automl": automl,
-            "params": automl_best_params,
-        }        
+        self.model = None
+        self.feature_columns = None  # Para guardar las columnas después del one-hot
 
+    def set_params(self, **params):
+        self.params.update(params)
 
-class ReTrainAutoMLBestModelStep(PipelineStep):
-    def __init__(self, train_eval_sets = {}, name: Optional[str] = None):
-        super().__init__(name)
-        if not train_eval_sets:
-            train_eval_sets = {
-                "X_train": "X_train",
-                "y_train": "y_train",
-                "X_eval": "X_eval",
-                "y_eval": "y_eval",
-                "eval_data": "eval_data",
-            }
-        self.train_eval_sets = train_eval_sets
+    def _preprocess(self, X):
+        # Convierte variables categóricas a dummies
+        X_proc = pd.get_dummies(X, drop_first=True)
+        # Si ya entrenamos, aseguramos que las columnas coincidan
+        if self.feature_columns is not None:
+            for col in self.feature_columns:
+                if col not in X_proc:
+                    X_proc[col] = 0
+            X_proc = X_proc[self.feature_columns]
+        # Reemplaza NaN por 0
+        X_proc = X_proc.fillna(0)
+        return X_proc
 
-    def execute(self, pipeline: Pipeline, automl_best_model, scaler=None, scaler_target=None) -> None:
-        X_train = pipeline.get_artifact(self.train_eval_sets["X_train"])
-        y_train = pipeline.get_artifact(self.train_eval_sets["y_train"])
-        X_eval = pipeline.get_artifact(self.train_eval_sets["X_eval"])
-        y_eval = pipeline.get_artifact(self.train_eval_sets["y_eval"])
-        df_eval = pipeline.get_artifact(self.train_eval_sets["eval_data"])
-
-        if scaler:
-            X_train[scaler.feature_names_in_] = scaler.transform(X_train[scaler.feature_names_in_])
-            X_eval[scaler.feature_names_in_] = scaler.transform(X_eval[scaler.feature_names_in_])
-            y_train = pd.Series(
-                scaler_target.transform(y_train.values.reshape(-1, 1)).flatten(),
-                index=y_train.index,
-            )
-            y_eval = pd.Series(
-                scaler_target.transform(y_eval.values.reshape(-1, 1)).flatten(),
-                index=y_eval.index,
-            )
-        if isinstance(automl_best_model, lgb.LGBMRegressor):
-            categorical_features = [col for col in X_train.columns if X_train[col].dtype.name == 'category']
-            train_data = lgb.Dataset(X_train, label=y_train, categorical_feature=categorical_features)
-            eval_data = lgb.Dataset(X_eval, label=y_eval, reference=train_data, categorical_feature=categorical_features)
-            custom_metric = CustomMetric(df_eval, product_id_col='product_id', scaler=scaler_target)
-            callbacks = [
-                #lgb.early_stopping(50),
-                lgb.log_evaluation(100),
-            ]
-            model = lgb.train(
-                automl_best_model.get_params(),
-                train_data,
-                num_boost_round=1000,
-                valid_sets=[eval_data],
-                feval=custom_metric,
-                callbacks=callbacks
-            )
-        else:
-            raise ValueError("The model is not a valid LightGBM model.")
-        # Save the model
-        return {"model": model}
-
-
-class TrainModelXGBStep(PipelineStep):
-    def __init__(self, params: Dict = {}, train_eval_sets = {}, name: Optional[str] = None):
-        super().__init__(name)
-        if not params:
-            params = {
-                'learning_rate': 0.05,
-                'max_depth': 6,
-                'n_estimators': 200,
-                'subsample': 0.8,
-                'colsample_bytree': 0.8,
-                'reg_alpha': 1,
-                'reg_lambda': 5,
-                'random_state': 42,
-                "enable_categorical": True,
-                "verbosity": 0,
-            }
-        if not train_eval_sets:
-            train_eval_sets = {
-                "X_train": "X_train",
-                "y_train": "y_train",
-                "X_eval": "X_eval",
-                "y_eval": "y_eval",
-            }
-        self.params = params
-        self.train_eval_sets = train_eval_sets
-    def execute(self, pipeline: Pipeline):
-        X_train = pipeline.get_artifact(self.train_eval_sets["X_train"])
-        y_train = pipeline.get_artifact(self.train_eval_sets["y_train"])
-        X_eval = pipeline.get_artifact(self.train_eval_sets["X_eval"])
-        y_eval = pipeline.get_artifact(self.train_eval_sets["y_eval"])
-
-        # drop rows where target is NaN
+    def fit(self, X_train, y_train, X_eval=None, y_eval=None):
+        if isinstance(y_train, pd.DataFrame) and y_train.shape[1] > 1:
+            raise ValueError("y_train debe ser una Serie para regresión single-target.")
         y_train = y_train.dropna()
         X_train = X_train.loc[y_train.index]
-        y_eval = y_eval.dropna()
-        X_eval = X_eval.loc[y_eval.index]
+        X_train_proc = pd.get_dummies(X_train, drop_first=True)
+        X_train_proc = X_train_proc.fillna(0)  # <--- asegurate de esto
+        self.feature_columns = X_train_proc.columns.tolist()
+        self.model = MLPRegressor(**self.params)
+        self.model.fit(X_train_proc, y_train)
+        return self
 
-        model = XGBRegressor(**self.params)
-        model.fit(X_train, y_train, eval_set=[(X_eval, y_eval)])
-        return {"model": model}     
-"""
+    def predict(self, X):
+        if self.model is None:
+            raise ValueError("Model has not been entrenado aún.")
+        X_proc = self._preprocess(X)
+        return pd.Series(self.model.predict(X_proc), index=X.index, name='predictions')
