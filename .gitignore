@@ -6,3 +6,6 @@ experiments
 *.gz
 *.pyc
 *.pickle
+*.csv
+*.pkl
+lightning_logs/

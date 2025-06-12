@@ -11,20 +11,26 @@ import datetime
 import matplotlib.pyplot as plt
 
 class EvaluatePredictionsSteps(PipelineStep):
+    def __init__(self, filter_file: Optional[str] = None, name: Optional[str] = None):
+        super().__init__(name)
+        self.file = filter_file
 
-    def execute(self, df, y_test, predictions, test_index) -> None:
+    def execute(self, df, test_index) -> None:
         
         eval_df_total = pd.DataFrame({
             "product_id": df.loc[test_index, "product_id"],
             "customer_id": df.loc[test_index, "customer_id"],
-            "target": y_test["target"].values,
-            "predictions": predictions.values
+            "target": df.loc[test_index, "target"],
+            "predictions": df.loc[test_index, "predictions"],
         })
 
         eval_df = eval_df_total.groupby(["product_id"]).agg({
             "target": "sum",
             "predictions": "sum"
         }).reset_index()
+        if self.file is not None:
+            product_ids = pd.read_csv(self.file, sep="\t")["product_id"].tolist()
+            eval_df = eval_df[eval_df["product_id"].isin(product_ids)]
 
         eval_df['tn_real'] = eval_df['target']
         eval_df['tn_pred'] = eval_df['predictions']
@@ -40,38 +46,99 @@ class EvaluatePredictionsSteps(PipelineStep):
             "total_error": total_error
         }
 
+class EvaluatePredictionsOptimizatedSteps(PipelineStep):
+
+    def execute(self, df, y_test, predictions, test_index) -> None:
+        
+        eval_df_total = pd.DataFrame({
+            "product_id": df.loc[test_index, "product_id"],
+            "customer_id": df.loc[test_index, "customer_id"],
+            "target": y_test["target"].values,
+            "predictions": predictions.values
+        })
+
+
+
+        # spliteo eval_df en 2 datasets al 50% de manera aleatorea para optimizacion post-train de alfa
+        eval_df_total_alfa_train =  eval_df_total.sample(frac=0.5, random_state=42)
+        eval_df_total_alfa_test = eval_df_total.drop(eval_df_total_alfa_train.index)
+        def objective(alpha):
+            df_temp = eval_df_total_alfa_train.copy()
+            df_temp['predictions'] = df_temp['predictions'] * alpha
+            eval_df_grouped = df_temp.groupby(["product_id"]).agg({
+                "target": "sum",
+                "predictions": "sum"
+            }).reset_index()
+            error = np.sum(np.abs(eval_df_grouped['target'] - eval_df_grouped['predictions'])) / np.sum(eval_df_grouped['target'])
+            return error
+        from scipy.optimize import minimize
+        result = minimize(objective, x0=1.0, bounds=[(0, 10)], method='L-BFGS-B')
+        alpha_opt = result.x[0]
+        eval_df_total_alfa_train['predictions'] = eval_df_total_alfa_train['predictions'] * alpha_opt
+        eval_df_total_alfa_test["predictions"] = eval_df_total_alfa_test['predictions'] * alpha_opt
+
+        eval_df_train = eval_df_total_alfa_train.groupby(["product_id"]).agg({
+            "target": "sum",
+            "predictions": "sum"
+        }).reset_index()
+
+        eval_df_train['tn_real'] = eval_df_train['target']
+        eval_df_train['tn_pred'] = eval_df_train['predictions']
+
+        eval_df_test = eval_df_total_alfa_test.groupby(["product_id"]).agg({
+            "target": "sum",
+            "predictions": "sum"
+        }).reset_index()
+        eval_df_test["tn_real"] = eval_df_test['target']
+        eval_df_test["tn_pred"] = eval_df_test['predictions']
+
+        total_train_error = np.sum(np.abs(eval_df_train['tn_real'] - eval_df_train['tn_pred'])) / np.sum(eval_df_train['tn_real'])
+        total_test_error = np.sum(np.abs(eval_df_test['tn_real'] - eval_df_test['tn_pred'])) / np.sum(eval_df_test['tn_real'])
+        print(f"alfa optimizado: {alpha_opt:.4f}")
+        print(f"Error en train: {total_train_error:.4f}")
+        print(f"Error en test: {total_test_error:.4f}")
+        print("\nTop 5 productos con mayor error absoluto en train:")
+        eval_df_train['error_absoluto'] = np.abs(eval_df_train['tn_real'] - eval_df_train['tn_pred'])
+        print(eval_df_train.sort_values('error_absoluto', ascending=False).head())
+        print("\nTop 5 productos con mayor error absoluto en test:")
+        eval_df_test['error_absoluto'] = np.abs(eval_df_test['tn_real'] - eval_df_test['tn_pred'])
+        print(eval_df_test.sort_values('error_absoluto', ascending=False).head())
+
+        return {
+            "eval_df_alfa_train": eval_df_train,
+            "eval_df_alfa_test": eval_df_test,
+            "alpha_opt": alpha_opt
+        }
 
 class PlotFeatureImportanceStep(PipelineStep):
     def execute(self, model) -> None:
         importance = pd.DataFrame()
-        if isinstance(model, lgb.Booster):
-            # Si el modelo es un Booster de LightGBM
-            lgb.plot_importance(model, max_num_features=20)
-            plt.show()
-            # creo el df de importancia
-            importance['feature'] = model.feature_name()
-            importance['importance'] = model.feature_importance(importance_type='gain')
-        elif isinstance(model, XGBRegressor):
-            # Si el modelo es un XGBRegressor
-            xgb.plot_importance(model, max_num_features=20)
-            # creo el df de importancia
-            importance['feature'] = model.get_booster().feature_names
-            importance['importance'] = model.get_booster().get_score(importance_type='gain').values()
-        return {
-            "importance": importance
-        }   
+        model.plot_importance(max_num_features=20)
 
 
 class KaggleSubmissionStep(PipelineStep):
+    def __init__(self, name: Optional[str] = None, alpha_opt: float = 1, experiment="", filter_file: Optional[str] = None):
+        super().__init__(name)
+        self.alpha_opt = alpha_opt
+        self.experiment = experiment
+        self.file = filter_file
+
+
     def execute(self, df, test_index, predictions) -> None:
         submission_aux_df = pd.DataFrame({
             "product_id": df.loc[test_index, "product_id"],
             "customer_id": df.loc[test_index, "customer_id"],
             "predictions": predictions.values
         })
+        # Apply the alpha optimization
+        submission_aux_df["predictions"] *= self.alpha_opt
         submission = submission_aux_df.groupby("product_id")["predictions"].sum().reset_index()
         submission.columns = ["product_id", "tn"]
-        return {"submission": submission}
+        if self.file is not None:
+            product_ids = pd.read_csv(self.file, sep="\t")["product_id"].tolist()
+            submission = submission[submission["product_id"].isin(product_ids)]
+
+        return {f"submission{self.experiment}": submission}
     
 
 class SaveSubmissionStep(PipelineStep):
@@ -79,7 +146,7 @@ class SaveSubmissionStep(PipelineStep):
         super().__init__(name)
         self.exp_name = exp_name
 
-    def execute(self, submission, total_error) -> None:
+    def execute(self, submission, total_error=None) -> None:
         # Create the experiment directory
         exp_name = f"{str(datetime.datetime.now())}_{self.exp_name}"
         exp_dir = f"experiments/{exp_name}"

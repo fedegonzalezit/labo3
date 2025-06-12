@@ -98,11 +98,11 @@ model_kaggle_pipeline = Pipeline(
 )
 
 
-pipeline_fe_for_nn = Pipeline(
+pipeline_fe_big = Pipeline(
     steps=[
         LoadDataFrameStep(path="df_intermedio.parquet"),
-        FilterProductForTestingStep(total_products_ids=3, random=False),
-        # FilterProductsIDStep(dfs=["df"]),
+        #FilterProductForTestingStep(total_products_ids=10, random=False),
+         FilterProductsIDStep(dfs=["df"]),
         # SplitDataFrameStep(df="df", test_date="2019-12", gap=1),
         # ScaleFeatureStep(column="tn"),
 
@@ -123,17 +123,47 @@ pipeline_fe_for_nn = Pipeline(
         }
         ),
         # ReduceMemoryUsageStep(),
-        #FeatureEngineeringLagStep(lags=[1, 2, 3, 5, 11], columns=[tn, "cust_request_qty"]),
-        #RollingMeanFeatureStep(window=3, columns=[tn, "cust_request_qty"]),
-        #RollingMaxFeatureStep(window=3, columns=[tn, "cust_request_qty"]),
-        #RollingMinFeatureStep(window=3, columns=[tn, "cust_request_qty"]),
+        FeatureEngineeringLagStep(lags=[1, 2, 3,4,5,6, 11,20,30], columns=[tn, "cust_request_qty"]),
+        RollingMeanFeatureStep(window=3, columns=[tn, "cust_request_qty"]),
+        RollingMaxFeatureStep(window=3, columns=[tn, "cust_request_qty"]),
+        RollingMinFeatureStep(window=3, columns=[tn, "cust_request_qty"]),
+        RollingMeanFeatureStep(window=6, columns=[tn, "cust_request_qty"]),
+        RollingMaxFeatureStep(window=6, columns=[tn, "cust_request_qty"]),
+        RollingMinFeatureStep(window=6, columns=[tn, "cust_request_qty"]),
+        RollingMeanFeatureStep(window=12, columns=[tn, "cust_request_qty"]),
+        RollingMaxFeatureStep(window=12, columns=[tn, "cust_request_qty"]),
+        RollingMinFeatureStep(window=12, columns=[tn, "cust_request_qty"]),
+        ReduceMemoryUsageStep(),
+
+
+        RollingStdFeatureStep(window=3, columns=[tn, "cust_request_qty"]),
+        RollingStdFeatureStep(window=6, columns=[tn, "cust_request_qty"]),
+        RollingStdFeatureStep(window=12, columns=[tn, "cust_request_qty"]), 
+
+        RollingSkewFeatureStep(window=3, columns=[tn, "cust_request_qty"]),
+        RollingSkewFeatureStep(window=6, columns=[tn, "cust_request_qty"]),
+        RollingSkewFeatureStep(window=12, columns=[tn, "cust_request_qty"]),
+        ReduceMemoryUsageStep(),
+
+        #RollingKurtosisFeatureStep(window=3, columns=[tn, "cust_request_qty"]),
+        #RollingKurtosisFeatureStep(window=6, columns=[tn, "cust_request_qty"]), 
+        #RollingKurtosisFeatureStep(window=12, columns=[tn, "cust_request_qty"]),
+
+        RollingZscoreFeatureStep(window=3, columns=[tn, "cust_request_qty"]),
+        RollingZscoreFeatureStep(window=6, columns=[tn, "cust_request_qty"]),
+        RollingZscoreFeatureStep(window=12, columns=[tn, "cust_request_qty"]),
+
+        RollingAutocorrelationFeatureStep(window=3, lags=[3], columns=[tn, "cust_request_qty"]),
+
         # ReduceMemoryUsageStep(),
 
         DiffFeatureStep(periods=1, columns=[tn, "cust_request_qty"]),
-        #DiffFeatureStep(periods=2, columns=[tn, "cust_request_qty"]),
-        #DiffFeatureStep(periods=5, columns=[tn, "cust_request_qty"]),
-        #DiffFeatureStep(periods=11, columns=[tn, "cust_request_qty"]),
-        # ReduceMemoryUsageStep(),
+        DiffFeatureStep(periods=2, columns=[tn, "cust_request_qty"]),
+        DiffFeatureStep(periods=3, columns=[tn, "cust_request_qty"]),
+        DiffFeatureStep(periods=4, columns=[tn, "cust_request_qty"]),
+        DiffFeatureStep(periods=5, columns=[tn, "cust_request_qty"]),
+        DiffFeatureStep(periods=11, columns=[tn, "cust_request_qty"]),
+         ReduceMemoryUsageStep(),
 
         CreateTotalCategoryStep(cat="cat1"),
         CreateTotalCategoryStep(cat="cat2"),
@@ -151,12 +181,64 @@ pipeline_fe_for_nn = Pipeline(
         CreateWeightByProductStep(),
         ReduceMemoryUsageStep(),
 
+        FeatureDivInteractionStep(columns=[
+            ("tn", "tn_cat1_vendidas"), 
+            ("tn", "tn_cat2_vendidas"), 
+            ("tn", "tn_cat3_vendidas"), 
+            ("tn", "tn_brand_vendidas")]
+        ),
+        #ReduceMemoryUsageStep(),
+
+        FeatureProdInteractionStep(columns=[(tn, "cust_request_qty")]),
+        ReduceMemoryUsageStep(),
+
+
         # steps para entrenar el modelo
-        SaveDataFrameStep(df_name="df", file_name="df_fe_exp_nn.pickle")
+        SaveDataFrameStep(df_name="df", file_name="df_fe_big.pickle")
 
     ],
     optimize_arftifacts_memory=True
 )
+
+model_test_grande = Pipeline(
+    steps=[
+        LoadDataFrameFromPickleStep(path="df_fe_big.pickle"),
+        DateRelatedFeaturesStep(),
+        TimeDecayWeghtedProductIdStep(),
+        ReduceMemoryUsageStep(),
+        SplitDataFrameStep(df="df", test_date="2019-10", gap=1),
+        CreateTargetColumStep(target_col="tn"),
+        ScaleFeatureStep(column=".*tn.*", override=False, regex=True),  
+        ScaleFeatureStep(column="target", override=True, scaler=PipelineStandarScaler),
+        ReduceMemoryUsageStep(),
+        PrepareXYStep(),
+        TrainModelStep(folds=0, params={"max_bin":1024, 'num_leaves': 31, "n_estimators": 700, "learning_rate": 0.01}),
+        PredictStep(),
+        InverseScalePredictionsStep(),
+        IntegratePredictionsStep(),
+        EvaluatePredictionsSteps(),
+        PlotFeatureImportanceStep(),
+        LoadDataFrameFromPickleStep(path="df_fe_reducido.pickle"),
+        SplitDataFrameStep(df="df", test_date="2019-12", gap=1),
+        CreateTargetColumStep(target_col=tn),
+        ScaleFeatureStep(column=".*tn.*", override=False, regex=True),
+        ScaleFeatureStep(column="target", override=True, scaler=PipelineStandarScaler),
+        ReduceMemoryUsageStep(),
+
+        PrepareXYStep(),
+        TrainModelStep(folds=0, params={"max_bin":1024, 'num_leaves': 31, "n_estimators": 700, "learning_rate": 0.01}),
+        PredictStep(),
+        InverseScalePredictionsStep(),
+        IntegratePredictionsStep(),
+        PlotFeatureImportanceStep(),
+        KaggleSubmissionStep(),
+        SaveSubmissionStep(exp_name="test_new_pipeline_150features"),
+
+
+    ]
+)
+
+
 pipeline_fe = Pipeline(
     steps=[
         LoadDataFrameStep(path="df_intermedio.parquet"),
@@ -242,10 +324,13 @@ pipeline_no_fe = PipelineComposition(
         model_kaggle_pipeline: [model_test_pipeline]
     }
 )
-pipeline_nn = PipelineComposition(
-    pipelines={
-        model_test_pipeline: [pipeline_fe_for_nn],
-    }
-)
+#pipeline_nn = PipelineComposition(
+#    pipelines={
+#        model_test_pipeline: [pipeline_fe_for_nn],
+#    }
+#)
 #pipeline_no_fe.run()
-pipeline_nn.run()
+#pipeline_nn.run()
+#pipeline_fe_big.run()
+#pipeline_fe_big.run()
+model_test_grande.run()

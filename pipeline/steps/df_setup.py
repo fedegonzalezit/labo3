@@ -32,25 +32,59 @@ class SplitDataFrameStep(PipelineStep):
             "test_index": test_df.index
         }
 
+class SplitDataFrameStep2(PipelineStep):
+    def __init__(
+            self, 
+            test_date=35, 
+            df="df", 
+            gap=0,
+            start_date=0,
+            name: Optional[str] = None
+        ):
+        super().__init__(name)
+        self.test_date = test_date
+        self.df = df
+        self.gap = gap 
+        self.start_date = start_date
 
+    def execute(self, pipeline) -> None:
+        df = pipeline.get_artifact(self.df)
+        filtered_df = df[df["date_id"] >= self.start_date]
+        test_df = filtered_df[filtered_df["date_id"] == self.test_date]
+        train_df = filtered_df[filtered_df["date_id"] < self.test_date - self.gap]
+        train_scaler = filtered_df[filtered_df["date_id"] <= self.test_date]
+        return {
+            "train_index": train_df.index,
+            "test_index": test_df.index,
+            "train_scaler_index": train_scaler.index
+        }
+    
 class PrepareXYStep(PipelineStep):
     def execute(self, df, train_index, test_index) -> None:
         columns = df.columns
         #features = [col for col in columns if col != "fecha" and "target" not in col]
-        features = [col for col in columns if col != "fecha" and "target" not in col]
-        targets = [col for col in columns if "target" in col]
+        features = [col for col in columns if col not in ["fecha", "target", "weight"]]
+        targets = "target"
+        print("X_train indexes:", train_index)
+        print(df.shape)
         X_train = df.loc[train_index][features]
         y_train = df.loc[train_index][targets]
         X_test = df.loc[test_index][features]
         y_test = df.loc[test_index][targets]
-        return {
+        ret_dict = {
             "features": features,
             "targets": targets,
             "X_train": X_train,
             "y_train": y_train,
             "X_test": X_test,
-            "y_test": y_test,
+            "y_test": y_test
         }
+        if "weight" in df.columns:
+            weights = df["weight"]
+            ret_dict.update({
+                "weights": weights,
+            })
+        return ret_dict
 
 
 class CreateTargetColumStep(PipelineStep):
@@ -64,6 +98,61 @@ class CreateTargetColumStep(PipelineStep):
         df['target'] = df.groupby(['product_id', 'customer_id'])[self.target_col].shift(-2)    
         return {"df": df, "target_col": self.target_col}
     
+
+class TransformTargetDiffStep(PipelineStep):
+    def execute(self, df: pd.DataFrame, target_col) -> Dict:
+        df['target'] = df["target"] - df[target_col]
+        return {
+            "df": df,
+        }
+    
+class InverseTransformDiffStep(PipelineStep):
+    def execute(self, df: pd.DataFrame, target_col) -> Dict:
+        df['target'] = df["target"] + df[target_col]
+        df['predictions'] = df["predictions"] + df[target_col]
+
+        return {
+            "df": df,
+        }
+    
+class TransformTargetRatioDiffStep(PipelineStep):
+    def execute(self, df: pd.DataFrame, target_col) -> Dict:
+        df['target'] = (df["target"]+1) / (df[target_col]+1)
+        return {
+            "df": df,
+        }
+class InverseTransformRatioDiffStep(PipelineStep):
+    def execute(self, df: pd.DataFrame, target_col) -> Dict:
+        df['target'] = (df["target"] * (df[target_col] + 1)) - 1
+        df['predictions'] = (df["predictions"] * (df[target_col] + 1)) - 1
+        return {
+            "df": df,
+        }
+
+import numpy as np
+class TransformTargetLog1pDiffStep(PipelineStep):
+    def __init__(self, name: Optional[str] = None, target_col: Optional[str] = None):
+        super().__init__(name)
+        self.target_col = target_col
+
+    def execute(self, df: pd.DataFrame, target_col) -> Dict:
+        target_col = self.target_col or target_col
+        df['target'] = np.log((df["target"] + 1) / (df[target_col] + 1))
+        return {
+            "df": df,
+        }
+class InverseTransformLog1pDiffStep(PipelineStep):
+    def __init__(self, name: Optional[str] = None, target_col: Optional[str] = None):
+        super().__init__(name)
+        self.target_col = target_col
+
+    def execute(self, df: pd.DataFrame, target_col) -> Dict:
+        target_col = self.target_col or target_col
+        df['target'] = np.exp(df["target"]) * (df[target_col] + 1) - 1
+        df['predictions'] = np.exp(df["predictions"]) * (df[target_col] + 1) - 1
+        return {
+            "df": df,
+        }
 
 class CreateMultiDiffTargetColumStep(PipelineStep):
     def __init__(self, name: Optional[str] = None, target_col: str = 'tn'):
@@ -104,7 +193,8 @@ class PredictStep(PipelineStep):
     def execute(self, df, test_index, model, features) -> None:
         X_predict = df.loc[test_index][features]
         predictions = model.predict(X_predict)
-        return {"predictions": predictions}
+        df["predictions"] = pd.Series(predictions, index=test_index)
+        return {"predictions": predictions, "df": df}
 
 
 class IntegratePredictionsStep(PipelineStep):

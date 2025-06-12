@@ -146,84 +146,186 @@ class FilterFirstDateStep(PipelineStep):
     
 
 class FeatureEngineeringLagStep(PipelineStep):
-    def __init__(self, lags: List[int], columns: List, name: Optional[str] = None):
+    def __init__(self, lags: List[int], columns: List, name: Optional[str] = None, column_rename= None):
         super().__init__(name)
         self.lags = lags
         self.columns = columns
+        self.all = all
+        self.column_rename = column_rename
+
 
     def execute(self, df: pd.DataFrame) -> dict:
         # Ordenar por grupo y fecha para que los lags sean correctos
+
         df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
         
         # Crear lags usando groupby y shift (vectorizado)
         grouped = df.groupby(['product_id', 'customer_id'])
         for column in self.columns:
             for lag in self.lags:
-                df[f"{column}_lag_{lag}"] = grouped[column].shift(lag)
+                c = self.column_rename or column
+                df[f"{c}_lag_{lag}"] = grouped[column].shift(lag)
         return {"df": df}
     
 
 class RollingMeanFeatureStep(PipelineStep):
-    def __init__(self, window: int, columns: List[str], name: Optional[str] = None):
+    def __init__(self, windows: List[int], columns: List[str], name: Optional[str] = None):
         super().__init__(name)
-        self.window = window
+        self.windows = windows
         self.columns = columns
 
     def execute(self, df: pd.DataFrame) -> Dict:
         df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
         grouped = df.groupby(['product_id', 'customer_id'])
         for col in self.columns:
-            df[f'{col}_rolling_mean_{self.window}'] = grouped[col].transform(
-                lambda x: x.rolling(self.window, min_periods=1).mean()
-            )
-        return {"df": df}
-    
-
-class RollingMaxFeatureStep(PipelineStep):
-    def __init__(self, window: int, columns: List[str], name: Optional[str] = None):
-        super().__init__(name)
-        self.window = window
-        self.columns = columns
-
-    def execute(self, df: pd.DataFrame) -> Dict:
-        df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
-        grouped = df.groupby(['product_id', 'customer_id'])
-        for col in self.columns:
-            df[f'{col}_rolling_max_{self.window}'] = grouped[col].transform(
-                lambda x: x.rolling(self.window, min_periods=1).max()
-            )
-        return {"df": df}
-    
-
-class RollingMinFeatureStep(PipelineStep):
-    def __init__(self, window: int, columns: List[str], name: Optional[str] = None):
-        super().__init__(name)
-        self.window = window
-        self.columns = columns
-
-    def execute(self, df: pd.DataFrame) -> Dict:
-        df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
-        grouped = df.groupby(['product_id', 'customer_id'])
-        for col in self.columns:
-            df[f'{col}_rolling_min_{self.window}'] = grouped[col].transform(
-                lambda x: x.rolling(self.window, min_periods=1).min()
-            )
+            for self.window in self.windows:
+                df[f'{col}_rolling_{self.window}'] = grouped[col].transform(
+                    lambda x: x.rolling(self.window, min_periods=1).mean()
+                )
         return {"df": df}
 
 
 class RollingStdFeatureStep(PipelineStep):
-    def __init__(self, window: int, columns: List[str], name: Optional[str] = None):
+    def __init__(self, windows: List[int], columns: List[str], name: Optional[str] = None):
         super().__init__(name)
-        self.window = window
+        self.windows = windows
         self.columns = columns
 
     def execute(self, df: pd.DataFrame) -> Dict:
         df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
         grouped = df.groupby(['product_id', 'customer_id'])
         for col in self.columns:
-            df[f'{col}_rolling_std_{self.window}'] = grouped[col].transform(
-                lambda x: x.rolling(self.window, min_periods=1).std()
-            )
+            for self.window in self.windows:
+                df[f'{col}_rolling_std_{self.window}'] = grouped[col].transform(
+                    lambda x: x.rolling(self.window, min_periods=1).std()
+                )
+        return {"df": df}
+
+
+class RollingSkewFeatureStep(PipelineStep):
+    def __init__(self, windows: List[int], columns: List[str], name: Optional[str] = None):
+        super().__init__(name)
+        self.windows = windows
+        self.columns = columns
+
+    def execute(self, df: pd.DataFrame) -> Dict:
+        df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
+        grouped = df.groupby(['product_id', 'customer_id'])
+        for col in self.columns:
+            for self.window in self.windows:
+                df[f'{col}_rolling_skew_{self.window}'] = grouped[col].transform(
+                    lambda x: x.rolling(self.window, min_periods=1).skew()
+                )
+        return {"df": df}
+    
+
+class RollingKurtosisFeatureStep(PipelineStep):
+    def __init__(self, windows: List[int], columns: List[str], name: Optional[str] = None):
+        super().__init__(name)
+        self.windows = windows
+        self.columns = columns
+
+    def execute(self, df: pd.DataFrame) -> Dict:
+        df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
+        grouped = df.groupby(['product_id', 'customer_id'])
+        for col in self.columns:
+            for self.window in self.windows:
+                df[f'{col}_rolling_kurtosis_{self.window}'] = grouped[col].transform(
+                    lambda x: x.rolling(self.window, min_periods=1).kurtosis()
+                )
+        return {"df": df}
+    
+
+class RollingZscoreFeatureStep(PipelineStep):
+    def __init__(self, windows: List[int], columns: List[str], name: Optional[str] = None):
+        super().__init__(name)
+        self.windows = windows
+        self.columns = columns
+
+    def execute(self, df: pd.DataFrame) -> Dict:
+        df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
+        grouped = df.groupby(['product_id', 'customer_id'])
+        for col in self.columns:
+            for self.window in self.windows:
+                rolling_mean = grouped[col].transform(
+                    lambda x: x.rolling(self.window, min_periods=1).mean()
+                )
+                rolling_std = grouped[col].transform(
+                    lambda x: x.rolling(self.window, min_periods=1).std()
+                )
+                df[f'{col}_rolling_zscore_{self.window}'] = (df[col] - rolling_mean) / (rolling_std + 1e-6)
+        return {"df": df}
+    
+
+class RollingAutocorrelationFeatureStep(PipelineStep):
+    def __init__(self, window: int, columns: List[str], lags: List[int], name: Optional[str] = None):
+        super().__init__(name)
+        self.window = window
+        self.columns = columns
+        self.lags = lags
+
+    def execute(self, df: pd.DataFrame) -> Dict:
+        df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
+        grouped = df.groupby(['product_id', 'customer_id'])
+        
+        for col in self.columns:
+            for lag in self.lags:
+                df[f'{col}_rolling_autocorr_{lag}_{self.window}'] = grouped[col].transform(
+                    lambda x: x.rolling(self.window, min_periods=1).apply(
+                        lambda y: y.autocorr(lag=lag), raw=False
+                    )
+                )
+        return {"df": df}
+
+
+class RollingMaxFeatureStep(PipelineStep):
+    def __init__(self, windows: int, columns: List[str], name: Optional[str] = None):
+        super().__init__(name)
+        self.windows = windows
+        self.columns = columns
+
+    def execute(self, df: pd.DataFrame) -> Dict:
+        df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
+        grouped = df.groupby(['product_id', 'customer_id'])
+        for col in self.columns:
+            for self.window in self.windows:
+                df[f'{col}_rolling_max_{self.window}'] = grouped[col].transform(
+                    lambda x: x.rolling(self.window, min_periods=1).max()
+                )
+        return {"df": df}
+    
+
+class RollingMinFeatureStep(PipelineStep):
+    def __init__(self, windows: int, columns: List[str], name: Optional[str] = None):
+        super().__init__(name)
+        self.windows = windows
+        self.columns = columns
+
+    def execute(self, df: pd.DataFrame) -> Dict:
+        df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
+        grouped = df.groupby(['product_id', 'customer_id'])
+        for col in self.columns:
+            for self.window in self.windows:
+                df[f'{col}_rolling_min_{self.window}'] = grouped[col].transform(
+                    lambda x: x.rolling(self.window, min_periods=1).min()
+                )
+        return {"df": df}
+
+
+class RollingStdFeatureStep(PipelineStep):
+    def __init__(self, windows: int, columns: List[str], name: Optional[str] = None):
+        super().__init__(name)
+        self.windows = windows
+        self.columns = columns
+
+    def execute(self, df: pd.DataFrame) -> Dict:
+        df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
+        grouped = df.groupby(['product_id', 'customer_id'])
+        for col in self.columns:
+            for self.window in self.windows:
+                df[f'{col}_rolling_std_{self.window}'] = grouped[col].transform(
+                    lambda x: x.rolling(self.window, min_periods=1).std()
+                )
         return {"df": df}
     
 
@@ -264,7 +366,7 @@ class TrendFeatureStep(PipelineStep):
     
 
 class DiffFeatureStep(PipelineStep):
-    def __init__(self, periods: int, columns: List[str], name: Optional[str] = None):
+    def __init__(self, periods: List[int], columns: List[str], name: Optional[str] = None):
         super().__init__(name)
         self.periods = periods
         self.columns = columns
@@ -273,23 +375,46 @@ class DiffFeatureStep(PipelineStep):
         df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
         grouped = df.groupby(['product_id', 'customer_id'])
         for col in self.columns:
-            df[f'{col}_diff_{self.periods}'] = grouped[col].diff(self.periods)
+            for period in self.periods:
+                df[f'{col}_diff_{period}'] = grouped[col].diff(period)
+        return {"df": df}
+    
+class DiffLogRatioFeatureStep(PipelineStep):
+    def __init__(self, period, window: int, column:str, min_periods=None, name: Optional[str] = None):
+        super().__init__(name)
+        self.column = column
+        self.window = window
+        self.min_periods = min_periods if min_periods is not None else window
+        self.period = period
+
+    def execute(self, df: pd.DataFrame) -> Dict:
+        df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
+        base_prediction = (
+            df.groupby(['product_id', 'customer_id'])[self.column]
+            .transform(lambda x: x.rolling(self.window, min_periods=self.min_periods).mean())
+        ).shift(self.period)
+        # CORRECCIÓN: obtener la serie alineada
+        column_to_diff = df.groupby(['product_id', 'customer_id'])[self.column].transform(lambda x: x)
+        df[f"{self.column}_diff_log_ratio_{self.period}_{self.window}"] = (
+            np.log((column_to_diff + 0.5) / (base_prediction + 0.5))
+        )
         return {"df": df}
     
 
 class RollingMedianFeatureStep(PipelineStep):
-    def __init__(self, window: int, columns: List[str], name: Optional[str] = None):
+    def __init__(self, windows: int, columns: List[str], name: Optional[str] = None):
         super().__init__(name)
-        self.window = window
+        self.windows = windows
         self.columns = columns
 
     def execute(self, df: pd.DataFrame) -> Dict:
         df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
         grouped = df.groupby(['product_id', 'customer_id'])
         for col in self.columns:
-            df[f'{col}_rolling_median_{self.window}'] = grouped[col].transform(
-                lambda x: x.rolling(self.window, min_periods=1).median()
-            )
+            for self.window in self.windows:
+                df[f'{col}_rolling_median_{self.window}'] = grouped[col].transform(
+                    lambda x: x.rolling(self.window, min_periods=1).median()
+                )
         return {"df": df}
     
 
@@ -353,6 +478,58 @@ class CreateWeightByProductStep(PipelineStep):
         return {"df": df}
     
 
+class CopyColumnAsWeightStep(PipelineStep):
+    def __init__(self, column: str, name: Optional[str] = None):
+        super().__init__(name)
+        self.column = column
+
+    def execute(self, df: pd.DataFrame) -> Dict:
+        df[f"weight"] = np.abs(df[self.column])
+        return {"df": df}
+    
+
+class WeightedProductIdStep(PipelineStep):
+    """
+    recibe un diccionario product_id: weight y agrega una columna weight donde el peso corresponde al peso del product_id de esa fila
+    """
+    def __init__(self, product_weights: Dict[str, float], name: Optional[str] = None):
+        super().__init__(name)
+        self.product_weights = product_weights
+
+    def execute(self, df: pd.DataFrame) -> Dict:
+        df['weight'] = df['product_id'].map(self.product_weights).fillna(0.0)
+        return {"df": df}
+
+class TimeDecayWeghtedProductIdStep(PipelineStep):
+    def __init__(self, name: Optional[str] = None, decay_factor: float = 0.99):
+        super().__init__(name)
+        self.decay_factor = decay_factor
+
+    def execute(self, df: pd.DataFrame, train_index) -> Dict:
+        # list of uniques date_id
+        unique_train_dates = df.loc[train_index, 'date_id'].unique()
+        # Create a decay factor based on the date_id
+        decay_factor = self.decay_factor
+        # Create a mapping of date_id to weight
+        #date_weights = {date_id: decay_factor ** (len(unique_dates) - idx - 1) for idx, date_id in enumerate(unique_dates)}
+        date_weights = {date_id: decay_factor ** (len(unique_train_dates) - idx - 1) for idx, date_id in enumerate(unique_train_dates)}
+        # Map the weights to the DataFrame
+        df['weight'] = df['date_id'].map(date_weights).fillna(1)
+        return {"df": df}
+
+class ManualDateIdWeightStep(PipelineStep):
+    def __init__(self, date_weights: Dict[int, float], name: Optional[str] = None):
+        super().__init__(name)
+        self.date_weights = date_weights
+
+    def execute(self, df: pd.DataFrame) -> Dict:
+        # multiplica a df["weight"] por el peso de la fecha, si la columna weight no existe la crea
+        # nota , no todas las fechas estan en date_weight, podria tener solo {31: 0.8, 32: 0.9} y las otras fechas mantienen su peso original sin multiplicar
+        if "weight" not in df.columns:
+            df["weight"] = 1.0
+        df['weight'] *= df['date_id'].map(self.date_weights).fillna(1.0)
+        return {"df": df}
+        
 class FeatureDivInteractionStep(PipelineStep):
     def __init__(self, columns: List[Tuple[str, str]], name: Optional[str] = None):
         super().__init__(name)
@@ -382,4 +559,16 @@ class DateRelatedFeaturesStep(PipelineStep):
     def execute(self, df) -> None:
         df["year"] = df["fecha"].dt.year
         df["mes"] = df["fecha"].dt.month
+        df["quarter"] = df["fecha"].dt.quarter
+        unique_dates = df['fecha'].drop_duplicates().sort_values()
+        date_to_id = {date: idx for idx, date in enumerate(unique_dates)}
+        df['date_id'] = df['fecha'].map(date_to_id).astype('uint8')
+        df['date_id'] = df['date_id'].astype('uint8')
+        df["dias_del_mes"] = df["fecha"].dt.daysinmonth
+        # creo variables coseno y seno para la fecha
+        df["coseno_fecha"] = np.cos(2 * np.pi * df["date_id"] / len(unique_dates))
+        df["seno_fecha"] = np.sin(2 * np.pi * df["date_id"] / len(unique_dates))
+        
+
+
         return {"df": df}
