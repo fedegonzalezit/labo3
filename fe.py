@@ -302,7 +302,7 @@ class TechnicalAnalysisFeaturesStep(PipelineStep):
         return self.run_ta(group.copy())
 
     def execute(self, df) -> pd.DataFrame:
-        grouped = [group for _, group in df.groupby(["product_id", "customer_id"])]
+        grouped = [group for _, group in df.groupby(["product_id", "customer_id"])[["date_id", "product_id", "customer_id", self.column]]]
         # Procesar en paralelo usando todos los cores disponibles
         with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
             dfs = pool.map(self._run_ta_wrapper, grouped)
