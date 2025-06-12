@@ -129,7 +129,6 @@ patsy==1.0.1
 peewee==3.18.1
 pexpect==4.9.0
 pillow==11.2.1
--e git+ssh://git@github.com/fedegonzalezit/pipelab.git@585fbe1731afc5539425f5d55957f9a2d498524e#egg=pipelab
 platformdirs==4.3.8
 plotly==6.1.1
 pluggy==1.6.0

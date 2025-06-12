@@ -168,20 +168,35 @@ class FeatureEngineeringLagStep(PipelineStep):
         return {"df": df}
     
 
+import multiprocessing
+
 class RollingMeanFeatureStep(PipelineStep):
     def __init__(self, windows: List[int], columns: List[str], name: Optional[str] = None):
         super().__init__(name)
         self.windows = windows
         self.columns = columns
 
+    def _compute_rolling_mean(self, args):
+        col, window, df = args
+        grouped = df.groupby(['product_id', 'customer_id'])
+        return (
+            f'{col}_rolling_{window}',
+            grouped[col].transform(lambda x: x.rolling(window, min_periods=1).mean())
+        )
+
     def execute(self, df: pd.DataFrame) -> Dict:
         df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
-        grouped = df.groupby(['product_id', 'customer_id'])
+        tasks = []
         for col in self.columns:
-            for self.window in self.windows:
-                df[f'{col}_rolling_{self.window}'] = grouped[col].transform(
-                    lambda x: x.rolling(self.window, min_periods=1).mean()
-                )
+            for window in self.windows:
+                tasks.append((col, window, df))
+
+        with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
+            results = pool.map(self._compute_rolling_mean, tasks)
+
+        for col_name, series in results:
+            df[col_name] = series
+
         return {"df": df}
 
 
@@ -201,21 +216,33 @@ class RollingStdFeatureStep(PipelineStep):
                 )
         return {"df": df}
 
-
 class RollingSkewFeatureStep(PipelineStep):
     def __init__(self, windows: List[int], columns: List[str], name: Optional[str] = None):
         super().__init__(name)
         self.windows = windows
         self.columns = columns
 
+    def _compute_rolling_skew(self, args):
+        col, window, df = args
+        grouped = df.groupby(['product_id', 'customer_id'])
+        return (
+            f'{col}_rolling_skew_{window}',
+            grouped[col].transform(lambda x: x.rolling(window, min_periods=1).skew())
+        )
+
     def execute(self, df: pd.DataFrame) -> Dict:
         df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
-        grouped = df.groupby(['product_id', 'customer_id'])
+        tasks = []
         for col in self.columns:
-            for self.window in self.windows:
-                df[f'{col}_rolling_skew_{self.window}'] = grouped[col].transform(
-                    lambda x: x.rolling(self.window, min_periods=1).skew()
-                )
+            for window in self.windows:
+                tasks.append((col, window, df))
+
+        with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
+            results = pool.map(self._compute_rolling_skew, tasks)
+
+        for col_name, series in results:
+            df[col_name] = series
+
         return {"df": df}
     
 
@@ -225,14 +252,27 @@ class RollingKurtosisFeatureStep(PipelineStep):
         self.windows = windows
         self.columns = columns
 
+    def _compute_rolling_kurtosis(self, args):
+        col, window, df = args
+        grouped = df.groupby(['product_id', 'customer_id'])
+        return (
+            f'{col}_rolling_kurtosis_{window}',
+            grouped[col].transform(lambda x: x.rolling(window, min_periods=1).kurtosis())
+        )
+
     def execute(self, df: pd.DataFrame) -> Dict:
         df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
-        grouped = df.groupby(['product_id', 'customer_id'])
+        tasks = []
         for col in self.columns:
-            for self.window in self.windows:
-                df[f'{col}_rolling_kurtosis_{self.window}'] = grouped[col].transform(
-                    lambda x: x.rolling(self.window, min_periods=1).kurtosis()
-                )
+            for window in self.windows:
+                tasks.append((col, window, df))
+
+        with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
+            results = pool.map(self._compute_rolling_kurtosis, tasks)
+
+        for col_name, series in results:
+            df[col_name] = series
+
         return {"df": df}
     
 
@@ -242,18 +282,27 @@ class RollingZscoreFeatureStep(PipelineStep):
         self.windows = windows
         self.columns = columns
 
+    def _compute_rolling_zscore(self, args):
+        col, window, df = args
+        grouped = df.groupby(['product_id', 'customer_id'])
+        rolling_mean = grouped[col].transform(lambda x: x.rolling(window, min_periods=1).mean())
+        rolling_std = grouped[col].transform(lambda x: x.rolling(window, min_periods=1).std())
+        zscore = (df[col] - rolling_mean) / (rolling_std + 1e-6)
+        return (f'{col}_rolling_zscore_{window}', zscore)
+
     def execute(self, df: pd.DataFrame) -> Dict:
         df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
-        grouped = df.groupby(['product_id', 'customer_id'])
+        tasks = []
         for col in self.columns:
-            for self.window in self.windows:
-                rolling_mean = grouped[col].transform(
-                    lambda x: x.rolling(self.window, min_periods=1).mean()
-                )
-                rolling_std = grouped[col].transform(
-                    lambda x: x.rolling(self.window, min_periods=1).std()
-                )
-                df[f'{col}_rolling_zscore_{self.window}'] = (df[col] - rolling_mean) / (rolling_std + 1e-6)
+            for window in self.windows:
+                tasks.append((col, window, df))
+
+        with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
+            results = pool.map(self._compute_rolling_zscore, tasks)
+
+        for col_name, series in results:
+            df[col_name] = series
+
         return {"df": df}
     
 
@@ -278,20 +327,35 @@ class RollingAutocorrelationFeatureStep(PipelineStep):
         return {"df": df}
 
 
+import multiprocessing
+
 class RollingMaxFeatureStep(PipelineStep):
     def __init__(self, windows: int, columns: List[str], name: Optional[str] = None):
         super().__init__(name)
         self.windows = windows
         self.columns = columns
 
+    def _compute_rolling_max(self, args):
+        col, window, df = args
+        grouped = df.groupby(['product_id', 'customer_id'])
+        return (
+            f'{col}_rolling_max_{window}',
+            grouped[col].transform(lambda x: x.rolling(window, min_periods=1).max())
+        )
+
     def execute(self, df: pd.DataFrame) -> Dict:
         df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
-        grouped = df.groupby(['product_id', 'customer_id'])
+        tasks = []
         for col in self.columns:
-            for self.window in self.windows:
-                df[f'{col}_rolling_max_{self.window}'] = grouped[col].transform(
-                    lambda x: x.rolling(self.window, min_periods=1).max()
-                )
+            for window in self.windows:
+                tasks.append((col, window, df))
+
+        with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
+            results = pool.map(self._compute_rolling_max, tasks)
+
+        for col_name, series in results:
+            df[col_name] = series
+
         return {"df": df}
     
 
@@ -301,14 +365,27 @@ class RollingMinFeatureStep(PipelineStep):
         self.windows = windows
         self.columns = columns
 
+    def _compute_rolling_min(self, args):
+        col, window, df = args
+        grouped = df.groupby(['product_id', 'customer_id'])
+        return (
+            f'{col}_rolling_min_{window}',
+            grouped[col].transform(lambda x: x.rolling(window, min_periods=1).min())
+        )
+
     def execute(self, df: pd.DataFrame) -> Dict:
         df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
-        grouped = df.groupby(['product_id', 'customer_id'])
+        tasks = []
         for col in self.columns:
-            for self.window in self.windows:
-                df[f'{col}_rolling_min_{self.window}'] = grouped[col].transform(
-                    lambda x: x.rolling(self.window, min_periods=1).min()
-                )
+            for window in self.windows:
+                tasks.append((col, window, df))
+
+        with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
+            results = pool.map(self._compute_rolling_min, tasks)
+
+        for col_name, series in results:
+            df[col_name] = series
+
         return {"df": df}
 
 
@@ -318,14 +395,27 @@ class RollingStdFeatureStep(PipelineStep):
         self.windows = windows
         self.columns = columns
 
+    def _compute_rolling_std(self, args):
+        col, window, df = args
+        grouped = df.groupby(['product_id', 'customer_id'])
+        return (
+            f'{col}_rolling_std_{window}',
+            grouped[col].transform(lambda x: x.rolling(window, min_periods=1).std())
+        )
+
     def execute(self, df: pd.DataFrame) -> Dict:
         df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
-        grouped = df.groupby(['product_id', 'customer_id'])
+        tasks = []
         for col in self.columns:
-            for self.window in self.windows:
-                df[f'{col}_rolling_std_{self.window}'] = grouped[col].transform(
-                    lambda x: x.rolling(self.window, min_periods=1).std()
-                )
+            for window in self.windows:
+                tasks.append((col, window, df))
+
+        with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
+            results = pool.map(self._compute_rolling_std, tasks)
+
+        for col_name, series in results:
+            df[col_name] = series
+
         return {"df": df}
     
 
@@ -407,14 +497,27 @@ class RollingMedianFeatureStep(PipelineStep):
         self.windows = windows
         self.columns = columns
 
+    def _compute_rolling_median(self, args):
+        col, window, df = args
+        grouped = df.groupby(['product_id', 'customer_id'])
+        return (
+            f'{col}_rolling_median_{window}',
+            grouped[col].transform(lambda x: x.rolling(window, min_periods=1).median())
+        )
+
     def execute(self, df: pd.DataFrame) -> Dict:
         df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
-        grouped = df.groupby(['product_id', 'customer_id'])
+        tasks = []
         for col in self.columns:
-            for self.window in self.windows:
-                df[f'{col}_rolling_median_{self.window}'] = grouped[col].transform(
-                    lambda x: x.rolling(self.window, min_periods=1).median()
-                )
+            for window in self.windows:
+                tasks.append((col, window, df))
+
+        with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
+            results = pool.map(self._compute_rolling_median, tasks)
+
+        for col_name, series in results:
+            df[col_name] = series
+
         return {"df": df}
     
 

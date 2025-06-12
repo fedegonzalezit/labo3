@@ -3,6 +3,7 @@ experiments
 .cache
 *.parquet
 *.txt
+!requirements.txt
 *.gz
 *.pyc
 *.pickle
