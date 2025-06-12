@@ -266,36 +266,6 @@ class RollingSkewFeatureStep(PipelineStep):
         return {"df": df}
     
 
-class RollingKurtosisFeatureStep(PipelineStep):
-    def __init__(self, windows: List[int], columns: List[str], name: Optional[str] = None):
-        super().__init__(name)
-        self.windows = windows
-        self.columns = columns
-
-    def _compute_rolling_kurtosis(self, args):
-        col, window, df = args
-        grouped = df.groupby(['product_id', 'customer_id'])
-        return (
-            f'{col}_rolling_kurtosis_{window}',
-            grouped[col].transform(lambda x: x.rolling(window, min_periods=window).kurtosis())
-        )
-
-    def execute(self, df: pd.DataFrame) -> Dict:
-        df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
-        tasks = []
-        for col in self.columns:
-            for window in self.windows:
-                # Solo pasar las columnas necesarias a cada proceso
-                df_small = df[['product_id', 'customer_id', 'fecha', col]].copy()
-                tasks.append((col, window, df_small))
-
-        with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
-            results = pool.map(self._compute_rolling_kurtosis, tasks)
-
-        for col_name, series in results:
-            df[col_name] = series
-
-        return {"df": df}
     
 
 class RollingZscoreFeatureStep(PipelineStep):

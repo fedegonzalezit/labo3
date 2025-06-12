@@ -383,6 +383,7 @@ fe_pipeline = Pipeline(
         FilterProductForTestingStep(total_products_ids=10, random=False),
         DateRelatedFeaturesStep(),
         #ProphetFeatureExtractionStep(), # por ahora para el dataset grande no lo uso
+        ReduceMemoryUsageStep(),
 
         # features manuales: TODO agregar aca las del grupo
         OperationBetweenColumnsStep(
@@ -397,6 +398,7 @@ fe_pipeline = Pipeline(
             operation="subtract",
             new_column_name="cust_request_tn_minus_tn"
         ),
+        TechnicalAnalysisFeaturesStep(column="tn"),
 
         # features estadisticas sobre tn
         FeatureEngineeringLagStep(lags=list(range(1,25)), columns=["tn"]),
@@ -407,11 +409,10 @@ fe_pipeline = Pipeline(
         RollingMinFeatureStep(windows=list(range(2,25)), columns=["tn"]),
         RollingSkewFeatureStep(windows=list(range(2,25)), columns=["tn"]),
         RollingZscoreFeatureStep(windows=list(range(2,25)), columns=["tn"]),
-        RollingKurtosisFeatureStep(windows=list(range(2,25)), columns=["tn"]),
         DiffFeatureStep(periods=list(range(1,25)), columns=["tn"]),
+        ReduceMemoryUsageStep(),
 
         # features AT sobre tn
-        TechnicalAnalysisFeaturesStep(column="tn"),
         # features prophet sobre tn
         # features transversales
         FeatureEngineeringProductCatInteractionStep(cat="cat1", tn="tn"),
@@ -419,7 +420,8 @@ fe_pipeline = Pipeline(
         FeatureEngineeringProductCatInteractionStep(cat="cat3", tn="tn"),
         FeatureEngineeringProductCatInteractionStep(cat="brand", tn="tn"),
         FeatureEngineeringProductCatInteractionStep(cat="sku_size", tn="tn"),
-        
+        ReduceMemoryUsageStep(),
+
         CreateTotalCategoryStep(cat="cat1"),
         CreateTotalCategoryStep(cat="cat2"),
         CreateTotalCategoryStep(cat="cat3"),
