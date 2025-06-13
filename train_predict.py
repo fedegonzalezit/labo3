@@ -436,7 +436,7 @@ model_pipeline = Pipeline(
 )
 
 model_pipeline.run() 
-models_list.append(model_pipeline)
+models_list.append(model_pipeline.get_artifact("eval_df"))
 model_pipeline = Pipeline(
     steps=[
         LoadDataFrameFromPickleStep("df_fe_epic_light.pickle"),
@@ -478,10 +478,10 @@ model_pipeline = Pipeline(
     
     ],
     optimize_arftifacts_memory=False,
-
 )
+
 model_pipeline.run() 
-models_list.append(model_pipeline)
+models_list.append(model_pipeline.get_artifact("eval_df"))
 
 
 model_pipeline = Pipeline(
@@ -525,10 +525,10 @@ model_pipeline = Pipeline(
     
     ],
     optimize_arftifacts_memory=False,
-
 )
+
 model_pipeline.run() 
-models_list.append(model_pipeline)
+models_list.append(model_pipeline.get_artifact("eval_df"))
 
 model_pipeline = Pipeline(
     steps=[
@@ -574,7 +574,7 @@ model_pipeline = Pipeline(
 
 )
 model_pipeline.run() 
-models_list.append(model_pipeline)
+models_list.append(model_pipeline.get_artifact("eval_df"))
 
 
 # hago un ensamble de modelos 3 modelos con distintos date_id_start
@@ -622,7 +622,7 @@ model_pipeline = Pipeline(
 
 )
 model_pipeline.run() 
-models_list.append(model_pipeline)
+models_list.append(model_pipeline.get_artifact("eval_df"))
 
 # hago un ensamble de modelos 3 modelos con distintos date_id_start
 model_pipeline = Pipeline(
@@ -669,7 +669,7 @@ model_pipeline = Pipeline(
 
 )
 model_pipeline.run() 
-models_list.append(model_pipeline)
+models_list.append(model_pipeline.get_artifact("eval_df"))
 
 
 
@@ -718,7 +718,7 @@ model_pipeline = Pipeline(
 
 )
 model_pipeline.run() 
-models_list.append(model_pipeline)
+models_list.append(model_pipeline.get_artifact("eval_df"))
 
 # hago un ensamble de modelos 3 modelos con distintos date_id_start
 model_pipeline = Pipeline(
@@ -765,7 +765,7 @@ model_pipeline = Pipeline(
 
 )
 model_pipeline.run() 
-models_list.append(model_pipeline)
+models_list.append(model_pipeline.get_artifact("eval_df"))
 
 # hago un ensamble de modelos 3 modelos con distintos date_id_start
 model_pipeline = Pipeline(
@@ -812,17 +812,17 @@ model_pipeline = Pipeline(
 
 )
 model_pipeline.run() 
-models_list.append(model_pipeline) 
+models_list.append(model_pipeline.get_artifact("eval_df"))
 
 predictions = []
 for m in models_list:
-    pred = m.get_artifact("eval_df")["tn_pred"]
+    pred = m["tn_pred"]
     print(pred)
     predictions.append(pred)
 prom_predictions = sum(predictions) / len(predictions)
-prom_predictions
+print(prom_predictions)
 
-eval_df = models_list[3].get_artifact("eval_df").copy()
+eval_df = models_list[3].copy()
 eval_df["prom_predictions"] = prom_predictions
 
 # los prom_predictions que sean menor a 0 los seteo a 0
