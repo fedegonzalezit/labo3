@@ -112,9 +112,43 @@ class EvaluatePredictionsOptimizatedSteps(PipelineStep):
 
 class PlotFeatureImportanceStep(PipelineStep):
     def execute(self, model) -> None:
-        importance = pd.DataFrame()
+        # Plot feature importance (works for both xgboost and lightgbm wrappers)
         model.plot_importance(max_num_features=20)
 
+        # Si es un modelo lightgbm Booster, mostrar el DataFrame de importancias
+        try:
+            import lightgbm as lgb
+            booster = getattr(getattr(model, "model", None), "model", None)
+            if isinstance(booster, lgb.Booster):
+                importance_df = pd.DataFrame({
+                    "feature": booster.feature_name(),
+                    "importance": booster.feature_importance(importance_type="gain")
+                }).sort_values("importance", ascending=False)
+                print("\nLightGBM Feature Importance (gain):")
+                print(importance_df)
+                return {
+                    "importance_df": importance_df
+                }
+        except Exception as e:
+            print(f"Could not print LightGBM feature importance: {e}")
+
+
+class KaggleSubmissionStep2(PipelineStep):
+    def __init__(self, name: Optional[str] = None, filter_file: Optional[str] = None):
+        super().__init__(name)
+        self.file = filter_file
+
+    def execute(self,eval_df) -> None:
+        submission = pd.DataFrame({
+            "product_id": eval_df["product_id"],
+            "tn": eval_df["tn_pred"]
+        })
+        if self.file is not None:
+            product_ids = pd.read_csv(self.file, sep="\t")["product_id"].tolist()
+            submission = submission[submission["product_id"].isin(product_ids)]
+
+        return {f"submission": submission}
+    
 
 class KaggleSubmissionStep(PipelineStep):
     def __init__(self, name: Optional[str] = None, alpha_opt: float = 1, experiment="", filter_file: Optional[str] = None):

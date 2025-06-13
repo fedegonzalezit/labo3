@@ -116,40 +116,50 @@ class InverseTransformDiffStep(PipelineStep):
         }
     
 class TransformTargetRatioDiffStep(PipelineStep):
+    def __init__(self, name: Optional[str] = None, adj_value: float = 1.0):
+        super().__init__(name)
+        self.adj_value = adj_value
+
     def execute(self, df: pd.DataFrame, target_col) -> Dict:
-        df['target'] = (df["target"]+1) / (df[target_col]+1)
+        df['target'] = (df["target"]+self.adj_value ) / (df[target_col]+self.adj_value )
         return {
             "df": df,
         }
 class InverseTransformRatioDiffStep(PipelineStep):
+    def __init__(self, name: Optional[str] = None, adj_value: float = 1.0):
+        super().__init__(name)
+        self.adj_value = adj_value
+
     def execute(self, df: pd.DataFrame, target_col) -> Dict:
-        df['target'] = (df["target"] * (df[target_col] + 1)) - 1
-        df['predictions'] = (df["predictions"] * (df[target_col] + 1)) - 1
+        df['target'] = (df["target"] * (df[target_col] + self.adj_value )) - self.adj_value 
+        df['predictions'] = (df["predictions"] * (df[target_col] + self.adj_value )) - self.adj_value 
         return {
             "df": df,
         }
 
 import numpy as np
 class TransformTargetLog1pDiffStep(PipelineStep):
-    def __init__(self, name: Optional[str] = None, target_col: Optional[str] = None):
+    def __init__(self, name: Optional[str] = None, target_col: Optional[str] = None, adj_value: float = 1.0):
         super().__init__(name)
         self.target_col = target_col
+        self.adj_value = adj_value
 
     def execute(self, df: pd.DataFrame, target_col) -> Dict:
         target_col = self.target_col or target_col
-        df['target'] = np.log((df["target"] + 1) / (df[target_col] + 1))
+        df['target'] = np.log((df["target"] + self.adj_value) / (df[target_col] + self.adj_value))
         return {
             "df": df,
         }
 class InverseTransformLog1pDiffStep(PipelineStep):
-    def __init__(self, name: Optional[str] = None, target_col: Optional[str] = None):
+    def __init__(self, name: Optional[str] = None, target_col: Optional[str] = None, adj_value: float = 1.0):
         super().__init__(name)
         self.target_col = target_col
+        self.adj_value = adj_value
 
     def execute(self, df: pd.DataFrame, target_col) -> Dict:
         target_col = self.target_col or target_col
-        df['target'] = np.exp(df["target"]) * (df[target_col] + 1) - 1
-        df['predictions'] = np.exp(df["predictions"]) * (df[target_col] + 1) - 1
+        df['target'] = (np.exp(df["target"]) * (df[target_col] + self.adj_value)) - self.adj_value
+        df['predictions'] = (np.exp(df["predictions"]) * (df[target_col] + self.adj_value)) - self.adj_value
         return {
             "df": df,
         }
