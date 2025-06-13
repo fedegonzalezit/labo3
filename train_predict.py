@@ -405,6 +405,38 @@ TEST_DATE=35
 EXPERIMENT="EXP_LOCO"
 
 models_list = []
+
+model_pipeline = Pipeline(
+    steps=[
+        LoadDataFrameFromPickleStep("df_fe_epic_light.pickle"),
+        SplitDataFrameStep2(df="df", test_date=33, gap=1),
+        TimeDecayWeghtedProductIdStep(decay_factor=0.99),
+        # marco outliers
+        #ManualDateIdWeightStep(date_weights={
+        #    29: 0.5,
+        #    30: 0.7,
+        #    31: 0.8
+        #}),
+        TrainScalerFeatureStep(column="tn"),
+        TrainScalerFeatureStep(column="cust_request_qty"),
+        TransformScalerFeatureStep(column=r'tn(?!.*(_div_|_per_|_minus_|_prod_))', regex=True, scaler_name="scaler_tn"),
+        TransformScalerFeatureStep(column="cust_request_qty", scaler_name="scaler_cust_request_qty"),
+        CreateTargetColumStep(target_col="tn_scaled"),
+        PrepareXYStep(),
+        TrainModelStep(params=params),
+        PredictStep(),
+        InverseTransformScalerFeatureStep(column="target", scaler_name="scaler_tn"),
+        InverseTransformScalerFeatureStep(column="predictions", scaler_name="scaler_tn"),
+        EvaluatePredictionsSteps(filter_file="product_id_apredecir201912.txt"),
+        PlotFeatureImportanceStep(),
+        
+    
+    ],
+    optimize_arftifacts_memory=False,
+)
+
+model_pipeline.run() 
+models_list.append(model_pipeline)
 model_pipeline = Pipeline(
     steps=[
         LoadDataFrameFromPickleStep("df_fe_epic_light.pickle"),
@@ -641,37 +673,6 @@ models_list.append(model_pipeline)
 
 
 
-model_pipeline = Pipeline(
-    steps=[
-        LoadDataFrameFromPickleStep("df_fe_epic_light.pickle"),
-        SplitDataFrameStep2(df="df", test_date=33, gap=1),
-        TimeDecayWeghtedProductIdStep(decay_factor=0.99),
-        # marco outliers
-        #ManualDateIdWeightStep(date_weights={
-        #    29: 0.5,
-        #    30: 0.7,
-        #    31: 0.8
-        #}),
-        TrainScalerFeatureStep(column="tn"),
-        TrainScalerFeatureStep(column="cust_request_qty"),
-        TransformScalerFeatureStep(column=r'tn(?!.*(_div_|_per_|_minus_|_prod_))', regex=True, scaler_name="scaler_tn"),
-        TransformScalerFeatureStep(column="cust_request_qty", scaler_name="scaler_cust_request_qty"),
-        CreateTargetColumStep(target_col="tn_scaled"),
-        PrepareXYStep(),
-        TrainModelStep(params=params),
-        PredictStep(),
-        InverseTransformScalerFeatureStep(column="target", scaler_name="scaler_tn"),
-        InverseTransformScalerFeatureStep(column="predictions", scaler_name="scaler_tn"),
-        EvaluatePredictionsSteps(filter_file="product_id_apredecir201912.txt"),
-        PlotFeatureImportanceStep(),
-        
-    
-    ],
-    optimize_arftifacts_memory=False,
-
-)
-model_pipeline.run() 
-models_list.append(model_pipeline)
 
 model_pipeline = Pipeline(
     steps=[
@@ -827,7 +828,8 @@ eval_df["prom_predictions"] = prom_predictions
 # los prom_predictions que sean menor a 0 los seteo a 0
 eval_df["prom_predictions"] = eval_df["prom_predictions"].apply(lambda x: max(x, 0))
 eval_df["error_prom_abs"] = np.abs(eval_df["prom_predictions"] - eval_df["tn_real"])
-eval_df.sort_values("error_prom_abs", ascending=False, inplace=True)
+print(eval_df.sort_values("error_prom_abs", ascending=False, inplace=True))
+
 
 total_error = np.sum(eval_df["error_prom_abs"]) / np.sum(eval_df["tn_real"])
 print(f"Total error: {total_error:.4f}")

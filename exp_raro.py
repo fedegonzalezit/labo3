@@ -408,7 +408,7 @@ models_list = []
 model_pipeline = Pipeline(
     steps=[
         LoadDataFrameFromPickleStep("df_fe_epic_light.pickle"),
-        SplitDataFrameStep2(df="df", test_date=TEST_DATE, gap=1),
+        SplitDataFrameStep2(df="df", test_date=33, gap=1),
         TimeDecayWeghtedProductIdStep(decay_factor=0.99),
         # marco outliers
         #ManualDateIdWeightStep(date_weights={
@@ -420,30 +420,13 @@ model_pipeline = Pipeline(
         TrainScalerFeatureStep(column="cust_request_qty"),
         TransformScalerFeatureStep(column=r'tn(?!.*(_div_|_per_|_minus_|_prod_))', regex=True, scaler_name="scaler_tn"),
         TransformScalerFeatureStep(column="cust_request_qty", scaler_name="scaler_cust_request_qty"),
-        CreateTargetColumStep(target_col="tn"),
-        TransformTargetLog1pDiffStep(target_col="tn_rolling_3", adj_value=1000), # MUY sensible al valor de este epsilon
-        # creo una columna lag_2 del target que es la serie historica
-        FeatureEngineeringLagStep(lags=[2], columns=["target"]),
-        # vuelvo a hacer FE de la nueva serie historica :)
-        FeatureEngineeringLagStep(lags=list(range(1,25)), columns=["target_lag_2"]),
-        RollingMeanFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
-        #RollingStdFeatureStep(windows=list(range(3,25)), columns=["target_lag_2"]),
-        RollingMaxFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
-        RollingMinFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
-        #RollingSkewFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
-        #RollingZscoreFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
-
-        DiffFeatureStep(periods=list(range(1,25)), columns=["target_lag_2"]),
+        CreateTargetColumStep(target_col="tn_scaled"),
         PrepareXYStep(),
         TrainModelStep(params=params),
         PredictStep(),
-        InverseTransformLog1pDiffStep(target_col="tn_rolling_3", adj_value=1000),
-        #InverseTransformScalerFeatureStep(column="target", scaler_name="scaler_tn"),
-        #InverseTransformScalerFeatureStep(column="predictions", scaler_name="scaler_tn"),
+        InverseTransformScalerFeatureStep(column="target", scaler_name="scaler_tn"),
+        InverseTransformScalerFeatureStep(column="predictions", scaler_name="scaler_tn"),
         EvaluatePredictionsSteps(filter_file="product_id_apredecir201912.txt"),
-        PlotFeatureImportanceStep(),
-        KaggleSubmissionStep2(filter_file="product_id_apredecir201912.txt"),
-        SaveSubmissionStep(exp_name="exp_raro")
         
     
     ],

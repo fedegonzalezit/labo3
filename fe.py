@@ -382,7 +382,7 @@ fe_pipeline = Pipeline(
         ReduceMemoryUsageStep(),
 
         #GroupByProductStep(),
-        FilterProductForTestingStep(total_products_ids=10, random=False),
+        FilterProductForTestingStep(total_products_ids=78, random=True),
         DateRelatedFeaturesStep(),
         #ProphetFeatureExtractionStep(), # por ahora para el dataset grande no lo uso
 
@@ -411,7 +411,7 @@ fe_pipeline = Pipeline(
         RollingSkewFeatureStep(windows=list(range(2,25)), columns=["tn"]),
         RollingZscoreFeatureStep(windows=list(range(2,25)), columns=["tn"]),
         DiffFeatureStep(periods=list(range(1,25)), columns=["tn"]),
-        #ReduceMemoryUsageStep(),
+        ReduceMemoryUsageStep(),
 
         # features AT sobre tn
         # features prophet sobre tn
