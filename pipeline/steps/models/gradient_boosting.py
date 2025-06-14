@@ -158,9 +158,11 @@ class RidgePipelineModel:
     
 
 class LGBPipelineModel:
-    def __init__(self, params: Dict = LGB_DEFAULT_PARAMS):
+    def __init__(self, params: Dict = LGB_DEFAULT_PARAMS, callbacks=[]):
         self.params = params
         self.model = None
+        self.callbacks = callbacks  # Callbacks to be used during training, if applicable
+
 
     def set_params(self, **params):
         self.params.update(params)
@@ -168,9 +170,9 @@ class LGBPipelineModel:
     def fit(self, X_train, y_train, X_eval, y_eval, weight=None):
         # si y_train tiene mas de una collumna uso mulltitarget
         if isinstance(y_train, pd.DataFrame) and y_train.shape[1] > 1:
-            self.model = LGBMultiTargetPipelineModel(self.params).fit(X_train, y_train, X_eval, y_eval, weight=weight)
+            self.model = LGBMultiTargetPipelineModel(self.params, self.callbacks).fit(X_train, y_train, X_eval, y_eval, weight=weight)
         else:
-            self.model = LGBPipelineSingleTargetModel(self.params).fit(X_train, y_train, X_eval, y_eval, weight=weight)
+            self.model = LGBPipelineSingleTargetModel(self.params, self.callbacks).fit(X_train, y_train, X_eval, y_eval, weight=weight)
         return self
     
     def predict(self, X):
@@ -225,7 +227,9 @@ class LGBBase:
         callbacks = [
             lgb.log_evaluation(100),
             #lgb.early_stopping(50),
+            *self.callbacks
         ]
+        print(callbacks)
         model = lgb.train(
             self.params,
             train_data,
@@ -260,9 +264,10 @@ class LGBMultiTargetPipelineModel(LGBBase):
 
 
 class LGBPipelineSingleTargetModel(LGBBase):
-    def __init__(self, params: Dict = LGB_DEFAULT_PARAMS):
+    def __init__(self, params: Dict = LGB_DEFAULT_PARAMS, callbacks=[]):
         self.params = params
         self.model = None
+        self.callbacks = callbacks 
 
     def fit(self, X_train, y_train, X_eval, y_eval, weight=None):
         if isinstance(y_train, pd.DataFrame) and y_train.shape[1] > 1:
@@ -280,22 +285,25 @@ class LGBPipelineSingleTargetModel(LGBBase):
     
     
 class TrainModelStep(PipelineStep):
-    def __init__(self, model_cls = LGBPipelineModel, name: Optional[str] = None, params={}, folds=0):
+    def __init__(self, model_cls = LGBPipelineModel, name: Optional[str] = None, params={}, folds=0, callbacks=[]):
         super().__init__(name)
         self.model_cls = model_cls
         self.params = params
         self.folds = folds  # Number of folds for cross-validation, if applicable
+        self.callbacks = callbacks 
 
-    def execute(self, X_test, y_test, X_train, y_train, weights=None, params={}) -> None:
+    def execute(self, pipeline, X_test, y_test, X_train, y_train, weights=None, params={}) -> None:
+        # instancio los callbacks
+        self.callbacks = [callback(pipeline) for callback in self.callbacks]
         params = params or self.params
         if self.folds > 1:
-            model = self.model_cls()
+            model = self.model_cls(callbacks=self.callbacks)
             model.set_params(**params)
             model = EnsambleKFoldWrapper(model, n_splits=self.folds)
 
             model.fit(X_train, y_train, X_test, y_test, weight=weights)
         else:
-            model = self.model_cls()
+            model =  self.model_cls(callbacks=self.callbacks)
             model.set_params(**params)
             model.fit(X_train, y_train, X_test, y_test, weight=weights)
         return {"model": model}

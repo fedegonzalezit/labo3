@@ -404,39 +404,40 @@ params = {'learning_rate': 0.09249276920204523,
 TEST_DATE=35
 EXPERIMENT="EXP_LOCO"
 
-models_list = []
+class SaveModelStep(PipelineStep):
+    def __init__(self, base_path, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.base_path = base_path
+        self.model_name = f"{self.base_path}/model"
 
-model_pipeline = Pipeline(
-    steps=[
-        LoadDataFrameFromPickleStep("df_fe_epic_light.pickle"),
-        SplitDataFrameStep2(df="df", test_date=33, gap=1),
-        TimeDecayWeghtedProductIdStep(decay_factor=0.99),
-        # marco outliers
-        #ManualDateIdWeightStep(date_weights={
-        #    29: 0.5,
-        #    30: 0.7,
-        #    31: 0.8
-        #}),
-        TrainScalerFeatureStep(column="tn"),
-        TrainScalerFeatureStep(column="cust_request_qty"),
-        TransformScalerFeatureStep(column=r'tn(?!.*(_div_|_per_|_minus_|_prod_))', regex=True, scaler_name="scaler_tn"),
-        TransformScalerFeatureStep(column="cust_request_qty", scaler_name="scaler_cust_request_qty"),
-        CreateTargetColumStep(target_col="tn_scaled"),
-        PrepareXYStep(),
-        TrainModelStep(params=params),
-        PredictStep(),
-        InverseTransformScalerFeatureStep(column="target", scaler_name="scaler_tn"),
-        InverseTransformScalerFeatureStep(column="predictions", scaler_name="scaler_tn"),
-        EvaluatePredictionsSteps(filter_file="product_id_apredecir201912.txt"),
-        PlotFeatureImportanceStep(),
-        
+    def execute(self, model, iteration):
+        # Guarda el modelo en un archivo
+        model_path = f"{self.model_name}_{iteration}.txt"
+        model.save_model(model_path)
+
+
+
+class LGBCallback:
+    def __init__(self, callback_pipeline, every_n_iter=100):
+        self.callback_pipeline = callback_pipeline
+        self.every_n_iter = every_n_iter
+
+    def __call__(self, parent_pipeline):
+        def callback(env):
+            if env.iteration % self.every_n_iter == 0 and env.iteration > 0:
+                print("Running callback at iteration:", env.iteration)
+                # Guarda el modelo en cada n iteraciones
+                self.callback_pipeline.save_artifact("model", env.model)
+                self.callback_pipeline.save_artifact("iteration", env.iteration)
+                # cargo los artifacts del pipeline padre en este pipeline
+                for artifact_name in parent_pipeline.artifacts.keys():
+                    artifact = parent_pipeline.get_artifact(artifact_name)
+                    self.callback_pipeline.save_artifact(artifact_name, artifact)
+                self.callback_pipeline.run()
+                self.callback_pipeline.clear()
+                # Aquí podrías agregar más lógica si es necesario
+        return callback
     
-    ],
-    optimize_arftifacts_memory=False,
-)
-
-model_pipeline.run() 
-models_list.append(model_pipeline.get_artifact("eval_df"))
 model_pipeline = Pipeline(
     steps=[
         LoadDataFrameFromPickleStep("df_fe_epic_light.pickle"),
@@ -467,11 +468,136 @@ model_pipeline = Pipeline(
 
         DiffFeatureStep(periods=list(range(1,25)), columns=["target_lag_2"]),
         PrepareXYStep(),
-        TrainModelStep(params=params),
+        TrainModelStep(
+            params=params, 
+            callbacks=[
+                LGBCallback(Pipeline(
+                    name="callback_pipeline",
+                    steps=[
+                        PredictStep(),
+                        InverseTransformLog1pDiffStep(target_col="tn_rolling_12", adj_value=1000),
+                        EvaluatePredictionsSteps(filter_file="product_id_apredecir201912.txt"),
+                        PlotFeatureImportanceStep(),
+                        SaveModelStep(base_path=BASE_PATH),
+                    ]
+                ))
+            ]
+        ),
         PredictStep(),
         InverseTransformLog1pDiffStep(target_col="tn_rolling_12", adj_value=1000),
         #InverseTransformScalerFeatureStep(column="target", scaler_name="scaler_tn"),
         #InverseTransformScalerFeatureStep(column="predictions", scaler_name="scaler_tn"),
+        EvaluatePredictionsSteps(filter_file="product_id_apredecir201912.txt"),
+        PlotFeatureImportanceStep(),
+        
+    
+    ],
+    optimize_arftifacts_memory=False,
+)
+
+model_pipeline.run() 
+models_list.append(model_pipeline.get_artifact("eval_df"))
+
+
+models_list = []
+model_pipeline = Pipeline(
+    steps=[
+        LoadDataFrameFromPickleStep("df_fe_epic_light.pickle"),
+        SplitDataFrameStep2(df="df", test_date=33, gap=1),
+        TimeDecayWeghtedProductIdStep(decay_factor=0.99),
+        # marco outliers
+        #ManualDateIdWeightStep(date_weights={
+        #    29: 0.5,
+        #    30: 0.7,
+        #    31: 0.8
+        #}),
+        TrainScalerFeatureStep(column="tn"),
+        TrainScalerFeatureStep(column="cust_request_qty"),
+        TransformScalerFeatureStep(column=r'tn(?!.*(_div_|_per_|_minus_|_prod_))', regex=True, scaler_name="scaler_tn"),
+        TransformScalerFeatureStep(column="cust_request_qty", scaler_name="scaler_cust_request_qty"),
+        CreateTargetColumStep(target_col="tn_scaled"),
+        TransformTargetDiffStep(),
+        # creo una columna lag_2 del target que es la serie historica
+        FeatureEngineeringLagStep(lags=[2], columns=["target"]),
+        # vuelvo a hacer FE de la nueva serie historica :)
+        FeatureEngineeringLagStep(lags=list(range(1,25)), columns=["target_lag_2"]),
+        RollingMeanFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
+        #RollingStdFeatureStep(windows=list(range(3,25)), columns=["target_lag_2"]),
+        RollingMaxFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
+        RollingMinFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
+        #RollingSkewFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
+        #RollingZscoreFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
+
+        DiffFeatureStep(periods=list(range(1,25)), columns=["target_lag_2"]),
+        PrepareXYStep(),
+        TrainModelStep(
+            params=params, 
+            callbacks=[
+                LGBCallback(Pipeline(
+                    name="callback_pipeline",
+                    steps=[
+                        PredictStep(),
+                        InverseTransformDiffStep(),
+                        InverseTransformScalerFeatureStep(column="target", scaler_name="scaler_tn"),
+                        InverseTransformScalerFeatureStep(column="predictions", scaler_name="scaler_tn"),
+                        EvaluatePredictionsSteps(filter_file="product_id_apredecir201912.txt"),
+                        PlotFeatureImportanceStep(),
+                        SaveModelStep(base_path=BASE_PATH),
+                    ]
+                ))
+            ]
+        ),
+        PredictStep(),
+        InverseTransformDiffStep(),
+        InverseTransformScalerFeatureStep(column="target", scaler_name="scaler_tn"),
+        InverseTransformScalerFeatureStep(column="predictions", scaler_name="scaler_tn"),
+        EvaluatePredictionsSteps(filter_file="product_id_apredecir201912.txt"),
+        PlotFeatureImportanceStep(),
+        
+    
+    ],
+    optimize_arftifacts_memory=False,
+
+)
+model_pipeline.run() 
+models_list.append(model_pipeline.get_artifact("eval_df"))
+
+model_pipeline = Pipeline(
+    steps=[
+        LoadDataFrameFromPickleStep("df_fe_epic_light.pickle"),
+        SplitDataFrameStep2(df="df", test_date=33, gap=1),
+        TimeDecayWeghtedProductIdStep(decay_factor=0.99),
+        # marco outliers
+        #ManualDateIdWeightStep(date_weights={
+        #    29: 0.5,
+        #    30: 0.7,
+        #    31: 0.8
+        #}),
+        TrainScalerFeatureStep(column="tn"),
+        TrainScalerFeatureStep(column="cust_request_qty"),
+        TransformScalerFeatureStep(column=r'tn(?!.*(_div_|_per_|_minus_|_prod_))', regex=True, scaler_name="scaler_tn"),
+        TransformScalerFeatureStep(column="cust_request_qty", scaler_name="scaler_cust_request_qty"),
+        CreateTargetColumStep(target_col="tn_scaled"),
+        PrepareXYStep(),
+        TrainModelStep(
+            params=params, 
+            callbacks=[
+                LGBCallback(Pipeline(
+                    name="callback_pipeline",
+                    steps=[
+                        PredictStep(),
+                        InverseTransformScalerFeatureStep(column="target", scaler_name="scaler_tn"),
+                        InverseTransformScalerFeatureStep(column="predictions", scaler_name="scaler_tn"),
+                        EvaluatePredictionsSteps(filter_file="product_id_apredecir201912.txt"),
+                        PlotFeatureImportanceStep(),
+                        SaveModelStep(base_path=BASE_PATH),
+                    ]
+                ))
+            ]
+        ),
+        PredictStep(),
+        InverseTransformScalerFeatureStep(column="target", scaler_name="scaler_tn"),
+        InverseTransformScalerFeatureStep(column="predictions", scaler_name="scaler_tn"),
         EvaluatePredictionsSteps(filter_file="product_id_apredecir201912.txt"),
         PlotFeatureImportanceStep(),
         
@@ -674,51 +800,6 @@ models_list.append(model_pipeline.get_artifact("eval_df"))
 
 
 
-model_pipeline = Pipeline(
-    steps=[
-        LoadDataFrameFromPickleStep("df_fe_epic_light.pickle"),
-        SplitDataFrameStep2(df="df", test_date=33, gap=1),
-        TimeDecayWeghtedProductIdStep(decay_factor=0.99),
-        # marco outliers
-        #ManualDateIdWeightStep(date_weights={
-        #    29: 0.5,
-        #    30: 0.7,
-        #    31: 0.8
-        #}),
-        TrainScalerFeatureStep(column="tn"),
-        TrainScalerFeatureStep(column="cust_request_qty"),
-        TransformScalerFeatureStep(column=r'tn(?!.*(_div_|_per_|_minus_|_prod_))', regex=True, scaler_name="scaler_tn"),
-        TransformScalerFeatureStep(column="cust_request_qty", scaler_name="scaler_cust_request_qty"),
-        CreateTargetColumStep(target_col="tn_scaled"),
-        TransformTargetDiffStep(),
-        # creo una columna lag_2 del target que es la serie historica
-        FeatureEngineeringLagStep(lags=[2], columns=["target"]),
-        # vuelvo a hacer FE de la nueva serie historica :)
-        FeatureEngineeringLagStep(lags=list(range(1,25)), columns=["target_lag_2"]),
-        RollingMeanFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
-        #RollingStdFeatureStep(windows=list(range(3,25)), columns=["target_lag_2"]),
-        RollingMaxFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
-        RollingMinFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
-        #RollingSkewFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
-        #RollingZscoreFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
-
-        DiffFeatureStep(periods=list(range(1,25)), columns=["target_lag_2"]),
-        PrepareXYStep(),
-        TrainModelStep(params=params),
-        PredictStep(),
-        InverseTransformDiffStep(),
-        InverseTransformScalerFeatureStep(column="target", scaler_name="scaler_tn"),
-        InverseTransformScalerFeatureStep(column="predictions", scaler_name="scaler_tn"),
-        EvaluatePredictionsSteps(filter_file="product_id_apredecir201912.txt"),
-        PlotFeatureImportanceStep(),
-        
-    
-    ],
-    optimize_arftifacts_memory=False,
-
-)
-model_pipeline.run() 
-models_list.append(model_pipeline.get_artifact("eval_df"))
 
 # hago un ensamble de modelos 3 modelos con distintos date_id_start
 model_pipeline = Pipeline(

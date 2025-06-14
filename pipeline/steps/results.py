@@ -28,6 +28,8 @@ class EvaluatePredictionsSteps(PipelineStep):
             "target": "sum",
             "predictions": "sum"
         }).reset_index()
+        eval_df['predictions'] = eval_df['predictions'].clip(lower=0)
+
         if self.file is not None:
             product_ids = pd.read_csv(self.file, sep="\t")["product_id"].tolist()
             eval_df = eval_df[eval_df["product_id"].isin(product_ids)]
@@ -56,6 +58,8 @@ class EvaluatePredictionsOptimizatedSteps(PipelineStep):
             "target": y_test["target"].values,
             "predictions": predictions.values
         })
+        # predictions clip 0 (el valor minimo de tn es 0)
+        eval_df_total['predictions'] = eval_df_total['predictions'].clip(lower=0)
 
 
 
@@ -113,7 +117,10 @@ class EvaluatePredictionsOptimizatedSteps(PipelineStep):
 class PlotFeatureImportanceStep(PipelineStep):
     def execute(self, model) -> None:
         # Plot feature importance (works for both xgboost and lightgbm wrappers)
-        model.plot_importance(max_num_features=20)
+        try:
+            model.plot_importance(max_num_features=20)
+        except:
+            print("Could not plot feature importance for the model. It might not support this method.")
 
         # Si es un modelo lightgbm Booster, mostrar el DataFrame de importancias
         try:
@@ -162,7 +169,7 @@ class KaggleSubmissionStep(PipelineStep):
         submission_aux_df = pd.DataFrame({
             "product_id": df.loc[test_index, "product_id"],
             "customer_id": df.loc[test_index, "customer_id"],
-            "predictions": predictions.values
+            "predictions": predictions
         })
         # Apply the alpha optimization
         submission_aux_df["predictions"] *= self.alpha_opt
@@ -176,17 +183,30 @@ class KaggleSubmissionStep(PipelineStep):
     
 
 class SaveSubmissionStep(PipelineStep):
-    def __init__(self, exp_name: str, name: Optional[str] = None):
+    def __init__(self, exp_name: str, base_path: str, name: Optional[str] = None):
         super().__init__(name)
         self.exp_name = exp_name
+        self.base_path = base_path
+        self.base_path = os.path.join(self.base_path, "experiments")
 
-    def execute(self, submission, total_error=None) -> None:
+    def execute(self, submission, iteration=None, total_error=None) -> None:
         # Create the experiment directory
-        exp_name = f"{str(datetime.datetime.now())}_{self.exp_name}"
-        exp_dir = f"experiments/{exp_name}"
+        exp_dir = os.path.join(self.base_path, self.exp_name)
+        # si ya existe el directyorio le agreo un _N al final
+        #if os.path.exists(exp_dir):
+        #    i = 1
+        #    while os.path.exists(f"{exp_dir}_{i}"):
+        #        i += 1
+        #    exp_dir = f"{exp_dir}_{i}"
+
         os.makedirs(exp_dir, exist_ok=True)
         # Save the submission file
-        submission.to_csv(os.path.join(exp_dir, f"submission_{self.exp_name}_{total_error}.csv"), index=False)
+        base_name = f"submission_{self.exp_name}"
+        if iteration is not None:
+            base_name += f"_iter{iteration}"
+        if total_error is not None:
+            base_name += f"_{total_error:.4f}"
+        submission.to_csv(os.path.join(exp_dir, f"{base_name}.csv"), index=False)
         
 
 class SaveExperimentStep(PipelineStep):

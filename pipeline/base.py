@@ -248,13 +248,14 @@ class Pipeline:
     """
     Main pipeline class that manages the execution of steps and storage of artifacts.
     """
-    def __init__(self, steps: Optional[List[PipelineStep]] = None, optimize_arftifacts_memory: bool = True, needs=None):
+    def __init__(self, name=None, steps: Optional[List[PipelineStep]] = None, optimize_arftifacts_memory: bool = True, needs=None):
         """Initialize the pipeline."""
         self.steps: List[PipelineStep] = steps if steps is not None else []
         self.artifacts: Dict[str, Any] = {}
         self.optimize_arftifacts_memory = optimize_arftifacts_memory
         self.needs = needs or []
         self.finished = False
+        self.name = name
 
     def add_step(self, step: PipelineStep, position: Optional[int] = None) -> None:
         """
@@ -281,9 +282,14 @@ class Pipeline:
             self.artifacts[artifact_name] = artifact
         else:
             # guarda el artifact en /tmp/ para no guardarlo en memoria
-            if not os.path.exists("/tmp/"):
-                os.makedirs("/tmp/")
-            artifact_path = os.path.join("/tmp/", artifact_name)
+            # si tiene self.name el path es /tmp/{self.name}/{artifact_name}
+            if self.name:
+                path = os.path.join("/tmp/", self.name)
+            else:
+                path = "/tmp/"
+            if not os.path.exists(path):
+                os.makedirs(path)
+            artifact_path = os.path.join(path, artifact_name)
             with open(artifact_path, 'wb') as f:
                 pickle.dump(artifact, f)
             self.artifacts[artifact_name] = artifact_path
