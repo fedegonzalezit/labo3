@@ -179,7 +179,7 @@ class RollingMeanFeatureStep(PipelineStep):
         col, window, df_small = args
         grouped = df_small.groupby(['product_id', 'customer_id'])
         return (
-            f'{col}_rolling_{window}',
+            f'{col}_rolling_mean_{window}',
             grouped[col].transform(lambda x: x.rolling(window, min_periods=window).mean())
         )
 
@@ -520,10 +520,11 @@ class RollingMedianFeatureStep(PipelineStep):
     
 
 class CreateTotalCategoryStep(PipelineStep):
-    def __init__(self, name: Optional[str] = None, cat: str = "cat1", tn: str = "tn"):
+    def __init__(self, name: Optional[str] = None, cat: str = "cat1", tn: str = "tn", div_by_row=False):
         super().__init__(name)
         self.cat = cat
         self.tn = tn
+        self.div_by_row = div_by_row
     
     def execute(self, df: pd.DataFrame) -> Dict:
         df = df.sort_values(['fecha', self.cat])
@@ -531,6 +532,9 @@ class CreateTotalCategoryStep(PipelineStep):
             df.groupby(['fecha', self.cat])[self.tn]
               .transform('sum')
         )
+        # si self.divide_by_row es True, tn por la suma total de la fecha y lo multiplico por 1000 para evitar valores muy pequeños
+        if self.div_by_row:
+            df[f"{self.tn}_{self.cat}_vendidas"] = 1000* df[self.tn]/ (df[f"{self.tn}_{self.cat}_vendidas"] + 1) 
         return {"df": df}
 
 

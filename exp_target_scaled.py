@@ -452,7 +452,7 @@ class LGBCallback:
 model_pipeline = Pipeline(
     steps=[
         LoadDataFrameFromPickleStep(BASE_PATH+"df_fe_epic_light.pickle"),
-        SplitDataFrameStep2(df="df", test_date=35, gap=1),
+        SplitDataFrameStep2(df="df", test_date=33, gap=1),
         TimeDecayWeghtedProductIdStep(decay_factor=0.99),
         # marco outliers
         #ManualDateIdWeightStep(date_weights={
@@ -462,7 +462,11 @@ model_pipeline = Pipeline(
         #}),
         TrainScalerFeatureStep(column="tn"),
         TrainScalerFeatureStep(column="cust_request_qty"),
-        TransformScalerFeatureStep(column=r'tn(?!.*(_div_|_per_|_minus_|_prod_))', regex=True, scaler_name="scaler_tn"),
+        TransformScalerFeatureStep(
+            column=r'^(tn$|.*tn_lag.*|.*rolling_mean.*|.*rolling_max.*|.*rolling_min.*)$',
+            regex=True,
+            scaler_name="scaler_tn"
+        ),         
         TransformScalerFeatureStep(column="cust_request_qty", scaler_name="scaler_cust_request_qty"),
         CreateTargetColumStep(target_col="tn_scaled"),
         PrepareXYStep(),

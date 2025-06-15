@@ -25,10 +25,11 @@ xgb_params = {
 
 class FeatureEngineeringProductCatInteractionStep(PipelineStep):
 
-    def __init__(self, cat="cat1", name: Optional[str] = None, tn="tn"):
+    def __init__(self, cat="cat1", name: Optional[str] = None, tn="tn", div_by_row=False):
         super().__init__(name)
         self.cat = cat
         self.tn = tn
+        self.div_by_row = div_by_row
 
 
     def execute(self, df, df_original=None) -> None:
@@ -47,7 +48,13 @@ class FeatureEngineeringProductCatInteractionStep(PipelineStep):
         df_cat = df_cat.pivot(index="date_id", columns=self.cat, values=self.tn).reset_index()
         # paso a string los nombres de las columnas
         df_cat.columns = [f"{self.tn}_{self.cat}_{col}" if col != "date_id" else "date_id" for col in df_cat.columns]
+        #new columns = [col for col in df_cat.columns if col != "date_id"]
         df = df.merge(df_cat, on="date_id", how="left")
+        # si div_by_row, divido  self.tn por cada columna nueva
+        if self.div_by_row:
+            new_columns = [col for col in df_cat.columns if col != "date_id"]
+            for col in new_columns:
+                df[col] = 1000 * df[col] / (df[self.tn] + 1)
         # vuelvo a setear el indice original
         df.index = df_index
         return {"df": df}
@@ -193,7 +200,8 @@ def extract_prophet_features(df):
         features = pd.DataFrame(index=forecast.index)
         for col in PROPHET_FEATURES:
             features[col] = forecast[col] if col in forecast.columns else np.nan
-    except Exception:
+    except Exception as e:
+        print(e)
         features = pd.DataFrame({
             **{col: np.nan for col in PROPHET_FEATURES}
         })
@@ -212,6 +220,7 @@ class ProphetFeatureExtractionStep(PipelineStep):
             if group["tn"].notna().sum() > 2:
                 features = extract_prophet_features(group)
             else:
+                print(f"Not enough data for product_id={pid}, customer_id={cid}. Skipping Prophet features extraction.")
                 # Si no hay suficientes datos, devolver NaN
                 features = pd.DataFrame({
                     "date_id": group["date_id"].values,
@@ -381,8 +390,8 @@ fe_pipeline = Pipeline(
         LoadDataFrameStep(BASE_PATH+"df_intermedio.parquet"),
         ReduceMemoryUsageStep(),
 
-        GroupByProductStep(),
-        #FilterProductForTestingStep(total_products_ids=78, random=True),
+        #GroupByProductStep(),
+        FilterProductForTestingStep(total_products_ids=30, random=False),
         DateRelatedFeaturesStep(),
         #ProphetFeatureExtractionStep(), # por ahora para el dataset grande no lo uso
 
@@ -403,42 +412,33 @@ fe_pipeline = Pipeline(
 
         # features estadisticas sobre tn
         FeatureEngineeringLagStep(lags=list(range(1,25)), columns=["tn"]),
-        RollingMeanFeatureStep(windows=list(range(2,25)), columns=["tn"]),
-        RollingMedianFeatureStep(windows=list(range(2,25)), columns=["tn"]),
-        RollingStdFeatureStep(windows=list(range(3,25)), columns=["tn"]),
-        RollingMaxFeatureStep(windows=list(range(2,25)), columns=["tn"]),
-        RollingMinFeatureStep(windows=list(range(2,25)), columns=["tn"]),
-        RollingSkewFeatureStep(windows=list(range(2,25)), columns=["tn"]),
-        RollingZscoreFeatureStep(windows=list(range(2,25)), columns=["tn"]),
+        RollingMeanFeatureStep(windows=list(range(2,15)), columns=["tn"]),
+        #RollingMedianFeatureStep(windows=list(range(2,15)), columns=["tn"]),
+        RollingStdFeatureStep(windows=list(range(3,15)), columns=["tn"]),
+        RollingMaxFeatureStep(windows=list(range(2,15)), columns=["tn"]),
+        RollingMinFeatureStep(windows=list(range(2,15)), columns=["tn"]),
+        RollingSkewFeatureStep(windows=list(range(3,15)), columns=["tn"]),
+        RollingZscoreFeatureStep(windows=list(range(3,15)), columns=["tn"]),
         DiffFeatureStep(periods=list(range(1,25)), columns=["tn"]),
         ReduceMemoryUsageStep(),
 
-        # features AT sobre tn
         # features prophet sobre tn
         # features transversales
-        FeatureEngineeringProductCatInteractionStep(cat="cat1", tn="tn"),
-        FeatureEngineeringProductCatInteractionStep(cat="cat2", tn="tn"),
-        FeatureEngineeringProductCatInteractionStep(cat="cat3", tn="tn"),
-        FeatureEngineeringProductCatInteractionStep(cat="brand", tn="tn"),
-        FeatureEngineeringProductCatInteractionStep(cat="sku_size", tn="tn"),
+        FeatureEngineeringProductCatInteractionStep(cat="cat1", tn="tn", div_by_row=True),
+        FeatureEngineeringProductCatInteractionStep(cat="cat2", tn="tn", div_by_row=True),
+        FeatureEngineeringProductCatInteractionStep(cat="cat3", tn="tn", div_by_row=True),
+        FeatureEngineeringProductCatInteractionStep(cat="brand", tn="tn", div_by_row=True),
+        FeatureEngineeringProductCatInteractionStep(cat="sku_size", tn="tn", div_by_row=True),
         #ReduceMemoryUsageStep(),
 
-        CreateTotalCategoryStep(cat="cat1"),
-        CreateTotalCategoryStep(cat="cat2"),
-        CreateTotalCategoryStep(cat="cat3"),
-        CreateTotalCategoryStep(cat="brand"),
-        CreateTotalCategoryStep(cat="sku_size"),
-        CreateTotalCategoryStep(cat="product_id"),
-        CreateTotalCategoryStep(cat="customer_id"),
+        CreateTotalCategoryStep(cat="cat1", div_by_row=True),
+        CreateTotalCategoryStep(cat="cat2", div_by_row=True),
+        CreateTotalCategoryStep(cat="cat3", div_by_row=True),
+        CreateTotalCategoryStep(cat="brand", div_by_row=True),
+        CreateTotalCategoryStep(cat="sku_size", div_by_row=True),
+        CreateTotalCategoryStep(cat="product_id", div_by_row=True),
+        CreateTotalCategoryStep(cat="customer_id", div_by_row=True),
 
-        # Interaccion entre columnas
-        FeatureDivInteractionStep(columns=[
-            ("tn", "tn_cat1_vendidas"),
-            ("tn", "tn_cat2_vendidas"),
-            ("tn", "tn_cat3_vendidas"),
-            ("tn", "tn_brand_vendidas"),
-            ("tn", "tn_sku_size_vendidas"),
-        ]),
         ReduceMemoryUsageStep(),
         DeleteBadColumns(),
         SaveDataFrameStep(df_name="df", file_name=BASE_PATH+"df_fe_epic_light.pickle")

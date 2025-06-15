@@ -383,8 +383,8 @@ class OperationBetweenColumnsStep(PipelineStep):
         
         return {"df": df}
     
-params = {'learning_rate': 0.09249276920204523,
- 'num_leaves': 17,
+params = {'learning_rate': 0.05,
+ 'num_leaves': 31,
  'max_depth': 18,
  'min_child_samples': 139,
  'subsample': 0.8665108176379659,
@@ -392,8 +392,8 @@ params = {'learning_rate': 0.09249276920204523,
  'reg_alpha': 0.0909029253091313,
  'reg_lambda': 0.22154388770108127,
  'min_split_gain': 0.0033066931135108304,
- 'max_bin': 348,
- 'feature_fraction': 0.14374611747734473,
+ 'max_bin': 512,
+ 'feature_fraction': 0.25,
  'bagging_fraction': 0.8972458727623152,
  'extra_trees': False,
  'bagging_freq': 45,
@@ -452,7 +452,7 @@ class LGBCallback:
 model_pipeline = Pipeline(
     steps=[
         LoadDataFrameFromPickleStep(BASE_PATH+"df_fe_epic_light.pickle"),
-        SplitDataFrameStep2(df="df", test_date=35, gap=1),
+        SplitDataFrameStep2(df="df", test_date=33, gap=1),
         TimeDecayWeghtedProductIdStep(decay_factor=0.99),
         # marco outliers
         #ManualDateIdWeightStep(date_weights={
@@ -462,21 +462,19 @@ model_pipeline = Pipeline(
         #}),
         TrainScalerFeatureStep(column="tn"),
         TrainScalerFeatureStep(column="cust_request_qty"),
-        TransformScalerFeatureStep(column=r'tn(?!.*(_div_|_per_|_minus_|_prod_))', regex=True, scaler_name="scaler_tn"),
-        TransformScalerFeatureStep(column="cust_request_qty", scaler_name="scaler_cust_request_qty"),
-        CreateTargetColumStep(target_col="tn"),
-        TransformTargetLog1pDiffStep(target_col="tn_rolling_12", adj_value=1000), # MUY sensible al valor de este epsilon
+        TransformScalerFeatureStep(
+            column=r'^(tn$|.*tn_lag.*|.*rolling_mean.*)$',
+            regex=True,
+            scaler_name="scaler_tn",
+            override=False
+        ),             
+        TransformScalerFeatureStep(column="cust_request_qty", scaler_name="scaler_cust_request_qty", override=False),
+        CreateTargetColumStep(target_col="tn_scaled"),
+        TransformTargetDiffStep(),
         # creo una columna lag_2 del target que es la serie historica
         FeatureEngineeringLagStep(lags=[2], columns=["target"]),
         # vuelvo a hacer FE de la nueva serie historica :)
         FeatureEngineeringLagStep(lags=list(range(1,25)), columns=["target_lag_2"]),
-        RollingMeanFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
-        #RollingStdFeatureStep(windows=list(range(3,25)), columns=["target_lag_2"]),
-        RollingMaxFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
-        RollingMinFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
-        #RollingSkewFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
-        #RollingZscoreFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
-
         DiffFeatureStep(periods=list(range(1,25)), columns=["target_lag_2"]),
         PrepareXYStep(),
         TrainModelStep(
@@ -486,20 +484,22 @@ model_pipeline = Pipeline(
                     name="callback_pipeline",
                     steps=[
                         PredictStep(),
-                        InverseTransformLog1pDiffStep(target_col="tn_rolling_12", adj_value=1000),
+                        InverseTransformDiffStep(),
+                        InverseTransformScalerFeatureStep(column="target", scaler_name="scaler_tn"),
+                        InverseTransformScalerFeatureStep(column="predictions", scaler_name="scaler_tn"),
                         EvaluatePredictionsSteps(filter_file=BASE_PATH+"product_id_apredecir201912.txt"),
                         KaggleSubmissionStep2(filter_file=BASE_PATH+"product_id_apredecir201912.txt"),
-                        SaveSubmissionStep("exp_residuo_12", base_path=BASE_PATH),
+                        SaveSubmissionStep("exp_simple_diff", base_path=BASE_PATH),
                         PlotFeatureImportanceStep(),
-                        SaveModelStep(base_path=BASE_PATH, experiment="exp_residuo_12"),
+                        SaveModelStep(base_path=BASE_PATH, experiment="exp_simple_diff"),
                     ]
                 ))
             ]
         ),
         PredictStep(),
-        InverseTransformLog1pDiffStep(target_col="tn_rolling_12", adj_value=1000),
-        #InverseTransformScalerFeatureStep(column="target", scaler_name="scaler_tn"),
-        #InverseTransformScalerFeatureStep(column="predictions", scaler_name="scaler_tn"),
+        InverseTransformDiffStep(),
+        InverseTransformScalerFeatureStep(column="target", scaler_name="scaler_tn"),
+        InverseTransformScalerFeatureStep(column="predictions", scaler_name="scaler_tn"),
         EvaluatePredictionsSteps(filter_file=BASE_PATH+"product_id_apredecir201912.txt"),
         PlotFeatureImportanceStep(),
         

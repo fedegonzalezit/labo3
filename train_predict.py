@@ -17,7 +17,7 @@ xgb_params = {
     "colsample_bynode": 0.362764358742407,
     "colsample_bytree": 0.7107423488010493,
     "gamma": 1.7094857725240398,
-    "learning_rate": 0.02213323588455387,
+    "learning_rate": 0.02,
     "max_depth": 20,
     "max_leaves": 512,
     "min_child_weight": 16,
@@ -383,8 +383,8 @@ class OperationBetweenColumnsStep(PipelineStep):
         
         return {"df": df}
     
-params = {'learning_rate': 0.09249276920204523,
- 'num_leaves': 17,
+params = {'learning_rate': 0.05,
+ 'num_leaves': 31,
  'max_depth': 18,
  'min_child_samples': 139,
  'subsample': 0.8665108176379659,
@@ -392,8 +392,8 @@ params = {'learning_rate': 0.09249276920204523,
  'reg_alpha': 0.0909029253091313,
  'reg_lambda': 0.22154388770108127,
  'min_split_gain': 0.0033066931135108304,
- 'max_bin': 348,
- 'feature_fraction': 0.14374611747734473,
+ 'max_bin': 512,
+ 'feature_fraction': 0.25,
  'bagging_fraction': 0.8972458727623152,
  'extra_trees': False,
  'bagging_freq': 45,
@@ -437,6 +437,67 @@ class LGBCallback:
                 self.callback_pipeline.clear()
                 # Aquí podrías agregar más lógica si es necesario
         return callback
+
+models_list = []
+model_pipeline = Pipeline(
+    steps=[
+        LoadDataFrameFromPickleStep("df_fe_epic_light.pickle"),
+        SplitDataFrameStep2(df="df", test_date=33, gap=1),
+        TimeDecayWeghtedProductIdStep(decay_factor=0.99),
+        # marco outliers
+        #ManualDateIdWeightStep(date_weights={
+        #    29: 0.5,
+        #    30: 0.7,
+        #    31: 0.8
+        #}),
+        TrainScalerFeatureStep(column="tn"),
+        TrainScalerFeatureStep(column="cust_request_qty"),
+        TransformScalerFeatureStep(
+            column=r'^(tn$|.*tn_lag.*|.*rolling_mean.*)$',
+            regex=True,
+            scaler_name="scaler_tn"
+        ),        
+        TransformScalerFeatureStep(column="cust_request_qty", scaler_name="scaler_cust_request_qty"),
+        CreateTargetColumStep(target_col="tn_scaled"),
+        TransformTargetDiffStep(),
+        # creo una columna lag_2 del target que es la serie historica
+        FeatureEngineeringLagStep(lags=[2], columns=["target"]),
+        # vuelvo a hacer FE de la nueva serie historica :)
+        FeatureEngineeringLagStep(lags=list(range(1,25)), columns=["target_lag_2"]),
+        DiffFeatureStep(periods=list(range(1,25)), columns=["target_lag_2"]),
+        PrepareXYStep(),
+        TrainModelStep(
+            params=params, 
+            callbacks=[
+                LGBCallback(Pipeline(
+                    name="callback_pipeline",
+                    steps=[
+                        PredictStep(),
+                        InverseTransformDiffStep(),
+                        InverseTransformScalerFeatureStep(column="target", scaler_name="scaler_tn"),
+                        InverseTransformScalerFeatureStep(column="predictions", scaler_name="scaler_tn"),
+                        EvaluatePredictionsSteps(filter_file="product_id_apredecir201912.txt"),
+                        PlotFeatureImportanceStep(),
+                        SaveModelStep(base_path=BASE_PATH),
+                    ]
+                ))
+            ]
+        ),
+        PredictStep(),
+        InverseTransformDiffStep(),
+        InverseTransformScalerFeatureStep(column="target", scaler_name="scaler_tn"),
+        InverseTransformScalerFeatureStep(column="predictions", scaler_name="scaler_tn"),
+        EvaluatePredictionsSteps(filter_file="product_id_apredecir201912.txt"),
+        PlotFeatureImportanceStep(),
+        
+    
+    ],
+    optimize_arftifacts_memory=False,
+
+)
+model_pipeline.run() 
+models_list.append(model_pipeline.get_artifact("eval_df"))
+
     
 model_pipeline = Pipeline(
     steps=[
@@ -451,8 +512,15 @@ model_pipeline = Pipeline(
         #}),
         TrainScalerFeatureStep(column="tn"),
         TrainScalerFeatureStep(column="cust_request_qty"),
-        TransformScalerFeatureStep(column=r'tn(?!.*(_div_|_per_|_minus_|_prod_))', regex=True, scaler_name="scaler_tn"),
-        TransformScalerFeatureStep(column="cust_request_qty", scaler_name="scaler_cust_request_qty"),
+        TransformScalerFeatureStep(
+            column=r'^(tn$|.*tn_lag.*|.*rolling_mean.*)$',
+            regex=True,
+            scaler_name="scaler_tn"
+        ), 
+        TransformScalerFeatureStep(
+            column="cust_request_qty",
+            scaler_name="scaler_cust_request_qty"
+        ),       
         CreateTargetColumStep(target_col="tn"),
         TransformTargetLog1pDiffStep(target_col="tn_rolling_12", adj_value=1000), # MUY sensible al valor de este epsilon
         # creo una columna lag_2 del target que es la serie historica
@@ -499,68 +567,7 @@ model_pipeline.run()
 models_list.append(model_pipeline.get_artifact("eval_df"))
 
 
-models_list = []
-model_pipeline = Pipeline(
-    steps=[
-        LoadDataFrameFromPickleStep("df_fe_epic_light.pickle"),
-        SplitDataFrameStep2(df="df", test_date=33, gap=1),
-        TimeDecayWeghtedProductIdStep(decay_factor=0.99),
-        # marco outliers
-        #ManualDateIdWeightStep(date_weights={
-        #    29: 0.5,
-        #    30: 0.7,
-        #    31: 0.8
-        #}),
-        TrainScalerFeatureStep(column="tn"),
-        TrainScalerFeatureStep(column="cust_request_qty"),
-        TransformScalerFeatureStep(column=r'tn(?!.*(_div_|_per_|_minus_|_prod_))', regex=True, scaler_name="scaler_tn"),
-        TransformScalerFeatureStep(column="cust_request_qty", scaler_name="scaler_cust_request_qty"),
-        CreateTargetColumStep(target_col="tn_scaled"),
-        TransformTargetDiffStep(),
-        # creo una columna lag_2 del target que es la serie historica
-        FeatureEngineeringLagStep(lags=[2], columns=["target"]),
-        # vuelvo a hacer FE de la nueva serie historica :)
-        FeatureEngineeringLagStep(lags=list(range(1,25)), columns=["target_lag_2"]),
-        RollingMeanFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
-        #RollingStdFeatureStep(windows=list(range(3,25)), columns=["target_lag_2"]),
-        RollingMaxFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
-        RollingMinFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
-        #RollingSkewFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
-        #RollingZscoreFeatureStep(windows=list(range(2,25)), columns=["target_lag_2"]),
 
-        DiffFeatureStep(periods=list(range(1,25)), columns=["target_lag_2"]),
-        PrepareXYStep(),
-        TrainModelStep(
-            params=params, 
-            callbacks=[
-                LGBCallback(Pipeline(
-                    name="callback_pipeline",
-                    steps=[
-                        PredictStep(),
-                        InverseTransformDiffStep(),
-                        InverseTransformScalerFeatureStep(column="target", scaler_name="scaler_tn"),
-                        InverseTransformScalerFeatureStep(column="predictions", scaler_name="scaler_tn"),
-                        EvaluatePredictionsSteps(filter_file="product_id_apredecir201912.txt"),
-                        PlotFeatureImportanceStep(),
-                        SaveModelStep(base_path=BASE_PATH),
-                    ]
-                ))
-            ]
-        ),
-        PredictStep(),
-        InverseTransformDiffStep(),
-        InverseTransformScalerFeatureStep(column="target", scaler_name="scaler_tn"),
-        InverseTransformScalerFeatureStep(column="predictions", scaler_name="scaler_tn"),
-        EvaluatePredictionsSteps(filter_file="product_id_apredecir201912.txt"),
-        PlotFeatureImportanceStep(),
-        
-    
-    ],
-    optimize_arftifacts_memory=False,
-
-)
-model_pipeline.run() 
-models_list.append(model_pipeline.get_artifact("eval_df"))
 
 model_pipeline = Pipeline(
     steps=[

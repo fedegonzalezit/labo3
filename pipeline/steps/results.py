@@ -136,6 +136,26 @@ class PlotFeatureImportanceStep(PipelineStep):
                 return {
                     "importance_df": importance_df
                 }
+            elif isinstance(model, lgb.LGBMRegressor):
+                importance_df = pd.DataFrame({
+                    "feature": model.feature_name_,
+                    "importance": model.feature_importances_
+                }).sort_values("importance", ascending=False)
+                print("\nLightGBM Feature Importance (gain):")
+                print(importance_df)
+                return {
+                    "importance_df": importance_df
+                }
+            elif isinstance(model, lgb.Booster):
+                importance_df = pd.DataFrame({
+                    "feature": model.feature_name(),
+                    "importance": model.feature_importance(importance_type="gain")
+                }).sort_values("importance", ascending=False)
+                print("\nLightGBM Booster Feature Importance (gain):")
+                print(importance_df)
+                return {
+                    "importance_df": importance_df
+                }
         except Exception as e:
             print(f"Could not print LightGBM feature importance: {e}")
 
