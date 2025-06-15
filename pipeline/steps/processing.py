@@ -634,6 +634,31 @@ class ManualDateIdWeightStep(PipelineStep):
             df["weight"] = 1.0
         df['weight'] *= df['date_id'].map(self.date_weights).fillna(1.0)
         return {"df": df}
+
+class ManualProductIdWeightStep(PipelineStep):
+    def __init__(self, product_weights: Dict[str, float], name: Optional[str] = None):
+        super().__init__(name)
+        self.product_weights = product_weights
+
+    def execute(self, df: pd.DataFrame) -> Dict:
+        # multiplica a df["weight"] por el peso del product_id, si la columna weight no existe la crea
+        if "weight" not in df.columns:
+            df["weight"] = 1.0
+        df['weight'] *= df['product_id'].map(self.product_weights).fillna(1.0)
+        print(df['weight'].describe())
+        return {"df": df}
+    
+class ManualCustomerIdWeightStep(PipelineStep):
+    def __init__(self, customer_weights: Dict[str, float], name: Optional[str] = None):
+        super().__init__(name)
+        self.customer_weights = customer_weights
+
+    def execute(self, df: pd.DataFrame) -> Dict:
+        # multiplica a df["weight"] por el peso del customer_id, si la columna weight no existe la crea
+        if "weight" not in df.columns:
+            df["weight"] = 1.0
+        df['weight'] *= df['customer_id'].map(self.customer_weights).fillna(1.0)
+        return {"df": df}
         
 class FeatureDivInteractionStep(PipelineStep):
     def __init__(self, columns: List[Tuple[str, str]], name: Optional[str] = None):

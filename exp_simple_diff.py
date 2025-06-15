@@ -428,7 +428,7 @@ class SaveModelStep(PipelineStep):
 
 
 class LGBCallback:
-    def __init__(self, callback_pipeline, every_n_iter=100):
+    def __init__(self, callback_pipeline, every_n_iter=250):
         self.callback_pipeline = callback_pipeline
         self.every_n_iter = every_n_iter
 
@@ -456,10 +456,12 @@ model_pipeline = Pipeline(
         TimeDecayWeghtedProductIdStep(decay_factor=0.99),
         # marco outliers
         #ManualDateIdWeightStep(date_weights={
-        #    29: 0.5,
-        #    30: 0.7,
+        #    29: 0.7,
+        #    30: 0.8,
         #    31: 0.8
         #}),
+        # le agrega un 20% de peso a los primeros 10 productos contando desde 20001
+
         TrainScalerFeatureStep(column="tn"),
         TrainScalerFeatureStep(column="cust_request_qty"),
         TransformScalerFeatureStep(

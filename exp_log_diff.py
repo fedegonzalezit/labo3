@@ -3,6 +3,13 @@ from pipeline.steps import *
 import logging
 logging.getLogger("prophet").setLevel(logging.WARNING)
 logging.getLogger("cmdstanpy").setLevel(logging.ERROR)
+# suprimir logs de performance warnings de pandas
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="pandas.core.internals.managers")
+warnings.filterwarnings("ignore", category=UserWarning, module="pandas")
+
+from pandas.errors import PerformanceWarning
+warnings.simplefilter(action="ignore", category=PerformanceWarning)
 
 BASE_PATH = "./"
 xgb_params = {
@@ -25,11 +32,10 @@ xgb_params = {
 
 class FeatureEngineeringProductCatInteractionStep(PipelineStep):
 
-    def __init__(self, cat="cat1", name: Optional[str] = None, tn="tn", div_by_row=False):
+    def __init__(self, cat="cat1", name: Optional[str] = None, tn="tn"):
         super().__init__(name)
         self.cat = cat
         self.tn = tn
-        self.div_by_row = div_by_row
 
 
     def execute(self, df, df_original=None) -> None:
@@ -48,13 +54,7 @@ class FeatureEngineeringProductCatInteractionStep(PipelineStep):
         df_cat = df_cat.pivot(index="date_id", columns=self.cat, values=self.tn).reset_index()
         # paso a string los nombres de las columnas
         df_cat.columns = [f"{self.tn}_{self.cat}_{col}" if col != "date_id" else "date_id" for col in df_cat.columns]
-        #new columns = [col for col in df_cat.columns if col != "date_id"]
         df = df.merge(df_cat, on="date_id", how="left")
-        # si div_by_row, divido  self.tn por cada columna nueva
-        if self.div_by_row:
-            new_columns = [col for col in df_cat.columns if col != "date_id"]
-            for col in new_columns:
-                df[col] = 1000 * df[col] / (df[self.tn] + 1)
         # vuelvo a setear el indice original
         df.index = df_index
         return {"df": df}
@@ -200,8 +200,7 @@ def extract_prophet_features(df):
         features = pd.DataFrame(index=forecast.index)
         for col in PROPHET_FEATURES:
             features[col] = forecast[col] if col in forecast.columns else np.nan
-    except Exception as e:
-        print(e)
+    except Exception:
         features = pd.DataFrame({
             **{col: np.nan for col in PROPHET_FEATURES}
         })
@@ -220,7 +219,6 @@ class ProphetFeatureExtractionStep(PipelineStep):
             if group["tn"].notna().sum() > 2:
                 features = extract_prophet_features(group)
             else:
-                print(f"Not enough data for product_id={pid}, customer_id={cid}. Skipping Prophet features extraction.")
                 # Si no hay suficientes datos, devolver NaN
                 features = pd.DataFrame({
                     "date_id": group["date_id"].values,
@@ -385,63 +383,128 @@ class OperationBetweenColumnsStep(PipelineStep):
         
         return {"df": df}
     
-fe_pipeline = Pipeline(
+params = {'learning_rate': 0.05,
+ 'num_leaves': 31,
+ 'max_depth': 18,
+ 'min_child_samples': 139,
+ 'subsample': 0.8665108176379659,
+ 'colsample_bytree': 0.7445887789494118,
+ 'reg_alpha': 0.0909029253091313,
+ 'reg_lambda': 0.22154388770108127,
+ 'min_split_gain': 0.0033066931135108304,
+ 'max_bin': 512,
+ 'feature_fraction': 0.25,
+ 'bagging_fraction': 0.8972458727623152,
+ 'extra_trees': False,
+ 'bagging_freq': 45,
+ 'n_estimators': 2718}
+ #'n_estimators': 100}
+
+
+TEST_DATE=35
+EXPERIMENT="EXP_LOCO"
+
+class SaveModelStep(PipelineStep):
+    def __init__(self, base_path, experiment, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.base_path = base_path
+        # le agrego a base_path experiments/ usando path join
+        self.base_path = os.path.join(self.base_path, "experiments")
+        self.experiment = experiment
+
+    def execute(self, model, iteration):
+        # Guarda el modelo en un archivo
+        exp_dir = os.path.join(self.base_path, self.experiment)
+        # si ya existe el directyorio le agreo un _N al final
+        #if os.path.exists(exp_dir):
+        #    i = 1
+        #    while os.path.exists(f"{exp_dir}_{i}"):
+        #        i += 1
+        #    exp_dir = f"{exp_dir}_{i}"
+            
+        os.makedirs(exp_dir, exist_ok=True)
+        model_path = f"{exp_dir}/model_iter{iteration}.txt"
+        model.save_model(model_path)
+
+
+class LGBCallback:
+    def __init__(self, callback_pipeline, every_n_iter=250  ):
+        self.callback_pipeline = callback_pipeline
+        self.every_n_iter = every_n_iter
+
+    def __call__(self, parent_pipeline):
+        def callback(env):
+            if env.iteration % self.every_n_iter == 0 and env.iteration > 0:
+                print("Running callback at iteration:", env.iteration)
+                # Guarda el modelo en cada n iteraciones
+                self.callback_pipeline.save_artifact("model", env.model)
+                self.callback_pipeline.save_artifact("iteration", env.iteration)
+                # cargo los artifacts del pipeline padre en este pipeline
+                for artifact_name in parent_pipeline.artifacts.keys():
+                    artifact = parent_pipeline.get_artifact(artifact_name)
+                    self.callback_pipeline.save_artifact(artifact_name, artifact)
+                self.callback_pipeline.run()
+                self.callback_pipeline.clear()
+                # Aquí podrías agregar más lógica si es necesario
+        return callback
+
+ 
+model_pipeline = Pipeline(
     steps=[
-        LoadDataFrameStep(BASE_PATH+"df_intermedio.parquet"),
-        ReduceMemoryUsageStep(),
+        LoadDataFrameFromPickleStep(BASE_PATH+"df_fe_epic_light.pickle"),
+        SplitDataFrameStep2(df="df", test_date=33, gap=1),
+        TimeDecayWeghtedProductIdStep(decay_factor=0.99),
+        # marco outliers
+        #ManualDateIdWeightStep(date_weights={
+        #    29: 0.7,
+        #    30: 0.8,
+        #    31: 0.8
+        #}),
+        # le agrega un 20% de peso a los primeros 10 productos contando desde 20001
 
-        #GroupByProductStep(),
-        #FilterProductForTestingStep(total_products_ids=60, random=False),
-        DateRelatedFeaturesStep(),
-        #ProphetFeatureExtractionStep(), # por ahora para el dataset grande no lo uso
-
-        # features manuales: TODO agregar aca las del grupo
-        OperationBetweenColumnsStep(
-            column1="cust_request_qty",
-            column2="cust_request_tn",
-            operation="divide",
-            new_column_name="cust_request_qty_per_tn"
+        TrainScalerFeatureStep(column="tn"),
+        TrainScalerFeatureStep(column="cust_request_qty"),
+        TransformScalerFeatureStep(
+            column=r'^(tn$|.*tn_lag.*|.*rolling_mean.*)$',
+            regex=True,
+            scaler_name="scaler_tn",
+            override=False
+        ),             
+        TransformScalerFeatureStep(column="cust_request_qty", scaler_name="scaler_cust_request_qty", override=False),
+        CreateTargetColumStep(target_col="tn"),
+        TransformTargetLog1pDiffStep(adj_value=50),
+        # creo una columna lag_2 del target que es la serie historica
+        FeatureEngineeringLagStep(lags=[2], columns=["target"]),
+        # vuelvo a hacer FE de la nueva serie historica :)
+        FeatureEngineeringLagStep(lags=list(range(1,25)), columns=["target_lag_2"]),
+        DiffFeatureStep(periods=list(range(1,25)), columns=["target_lag_2"]),
+        PrepareXYStep(),
+        TrainModelStep(
+            params=params, 
+            callbacks=[
+                LGBCallback(Pipeline(
+                    name="callback_pipeline",
+                    steps=[
+                        PredictStep(),
+                        InverseTransformLog1pDiffStep(adj_value=50),
+                        EvaluatePredictionsSteps(filter_file=BASE_PATH+"product_id_apredecir201912.txt"),
+                        KaggleSubmissionStep2(filter_file=BASE_PATH+"product_id_apredecir201912.txt"),
+                        SaveSubmissionStep("exp_log_diff", base_path=BASE_PATH),
+                        PlotFeatureImportanceStep(),
+                        SaveModelStep(base_path=BASE_PATH, experiment="exp_log_diff"),
+                    ]
+                ))
+            ]
         ),
-        OperationBetweenColumnsStep(
-            column1="cust_request_tn",
-            column2="tn",
-            operation="subtract",
-            new_column_name="cust_request_tn_minus_tn"
-        ),
-        TechnicalAnalysisFeaturesStep(column="tn"),
-
-        # features estadisticas sobre tn
-        FeatureEngineeringLagStep(lags=list(range(1,25)), columns=["tn"]),
-        RollingMeanFeatureStep(windows=list(range(2,15)), columns=["tn"]),
-        #RollingMedianFeatureStep(windows=list(range(2,15)), columns=["tn"]),
-        RollingStdFeatureStep(windows=list(range(3,15)), columns=["tn"]),
-        RollingMaxFeatureStep(windows=list(range(2,15)), columns=["tn"]),
-        RollingMinFeatureStep(windows=list(range(2,15)), columns=["tn"]),
-        RollingSkewFeatureStep(windows=list(range(3,15)), columns=["tn"]),
-        RollingZscoreFeatureStep(windows=list(range(3,15)), columns=["tn"]),
-        DiffFeatureStep(periods=list(range(1,25)), columns=["tn"]),
-        ReduceMemoryUsageStep(),
-
-        # features prophet sobre tn
-        # features transversales
-        FeatureEngineeringProductCatInteractionStep(cat="cat1", tn="tn", div_by_row=True),
-        FeatureEngineeringProductCatInteractionStep(cat="cat2", tn="tn", div_by_row=True),
-        FeatureEngineeringProductCatInteractionStep(cat="cat3", tn="tn", div_by_row=True),
-        FeatureEngineeringProductCatInteractionStep(cat="brand", tn="tn", div_by_row=True),
-        FeatureEngineeringProductCatInteractionStep(cat="sku_size", tn="tn", div_by_row=True),
-        #ReduceMemoryUsageStep(),
-
-        CreateTotalCategoryStep(cat="cat1", div_by_row=True),
-        CreateTotalCategoryStep(cat="cat2", div_by_row=True),
-        CreateTotalCategoryStep(cat="cat3", div_by_row=True),
-        CreateTotalCategoryStep(cat="brand", div_by_row=True),
-        CreateTotalCategoryStep(cat="sku_size", div_by_row=True),
-        CreateTotalCategoryStep(cat="product_id", div_by_row=True),
-        CreateTotalCategoryStep(cat="customer_id", div_by_row=True),
-
-        ReduceMemoryUsageStep(),
-        DeleteBadColumns(),
-        SaveDataFrameStep(df_name="df", file_name=BASE_PATH+"df_fe_epic_light.pickle")
-    ]
+        PredictStep(),
+        InverseTransformLog1pDiffStep(adj_value=50),
+        EvaluatePredictionsSteps(filter_file=BASE_PATH+"product_id_apredecir201912.txt"),
+        PlotFeatureImportanceStep(),
+        
+    
+    ],
+    optimize_arftifacts_memory=False,
 )
-fe_pipeline.run()
+
+model_pipeline.run() 
+
