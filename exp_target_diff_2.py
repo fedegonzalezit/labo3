@@ -5,7 +5,8 @@ df = pd.read_pickle('df_fe_epic_light.pickle')
 test_index = df.index[df['date_id'] == 33]
 train_index = df.index[df['date_id'] <= 31]
 train_scaler_index = df.index[df['date_id'] <= 33]
-
+numeric_columns = df.select_dtypes(include=['float64', "float32"]).columns
+print(numeric_columns)
 transformations = {
     "tn": [r"tn$", r"cust_request_qty_per_tn$", r"tn_lag_*", r"tn_rolling_mean_*", r"tn_rolling_max_*", r"tn_rolling_min_*", r"tn_.*_vendidas$"],
     "stock_final": [r"stock_final$"],
