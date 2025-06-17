@@ -89,6 +89,8 @@ real_target = pd.DataFrame(df.groupby(['customer_id', 'product_id'])['tn'].shift
 
 def predict_test(model, X_test, real_target, test_index):
     X_test = df_scaled.loc[test_index].drop(columns=["target", "fecha"])
+    product_ids = pd.read_csv("product_id_apredecir201912.txt", sep="\t")["product_id"].tolist()
+    X_test = X_test[X_test['product_id'].isin(product_ids)]
     predictions = model.predict(X_test)
     df_result = X_test[['customer_id', 'product_id', "tn_scaled", "tn"]].copy()
     df_result['predictions_scaled'] = predictions
