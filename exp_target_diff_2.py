@@ -1,10 +1,26 @@
 import pandas as pd
-df = pd.read_pickle('df_fe_epic_light.pickle')
 
+DATA_FOLDER = "./"
 
-test_index = df.index[df['date_id'] == 33]
-train_index = df.index[df['date_id'] <= 31]
-train_scaler_index = df.index[df['date_id'] <= 33]
+df = pd.read_pickle(DATA_FOLDER+'df_fe_epic_light.pickle')
+
+TEST_DATE = 35
+EXP_FOLDER = "./experiments/test_exp/"
+
+# create folder if not exists
+import os
+if not os.path.exists(EXP_FOLDER):
+    os.makedirs(EXP_FOLDER)
+
+def save_submission(df_result, filename):
+    df_result = df_result.reset_index()
+    df_result = df_result[['product_id', 'predictions']]
+    df_result.columns = ["product_id", "tn"]
+    df_result.to_csv(EXP_FOLDER + filename, index=False)
+
+test_index = df.index[df['date_id'] == TEST_DATE]
+train_index = df.index[df['date_id'] <= TEST_DATE-2]
+train_scaler_index = df.index[df['date_id'] <= TEST_DATE]
 numeric_columns = df.select_dtypes(include=['float64', "float32"]).columns
 print(numeric_columns)
 transformations = {
@@ -89,8 +105,6 @@ real_target = pd.DataFrame(df.groupby(['customer_id', 'product_id'])['tn'].shift
 
 def predict_test(model, X_test, real_target, test_index):
     X_test = df_scaled.loc[test_index].drop(columns=["target", "fecha"])
-    product_ids = pd.read_csv("product_id_apredecir201912.txt", sep="\t")["product_id"].tolist()
-    X_test = X_test[X_test['product_id'].isin(product_ids)]
     predictions = model.predict(X_test)
     df_result = X_test[['customer_id', 'product_id', "tn_scaled", "tn"]].copy()
     df_result['predictions_scaled'] = predictions
@@ -121,13 +135,14 @@ def predict_test(model, X_test, real_target, test_index):
 
 
 # agrupo por product_id y sumo todos los target y predictions
-def calculate_total_error(df_result, alpha=1.0):
+def calculate_total_error(df_result, alpha=1.0, iter=""):
     grouped = df_result.groupby('product_id').agg({
         'predictions': 'sum',
         'target': 'sum'
     }).reset_index()
     grouped['predictions'] = grouped['predictions'] * alpha
     grouped['abs_error'] = np.abs(grouped['predictions'] - grouped['target'])
+    save_submission(grouped, f"submission_iter{iter}.csv")
     total_error = grouped['abs_error'].sum() / grouped['target'].sum()
     return grouped, total_error
 
@@ -137,6 +152,9 @@ y_train = df_scaled.loc[train_index, 'target'].dropna()
 X_train = df_scaled.loc[y_train.index].drop(columns=["target", "fecha"])
 y_test = df_scaled.loc[test_index, 'target']
 X_test = df_scaled.loc[test_index].drop(columns=["target", "fecha"])
+product_ids = pd.read_csv(DATA_FOLDER+"product_id_apredecir201912.txt", sep="\t")["product_id"].tolist()
+X_test = X_test[X_test['product_id'].isin(product_ids)]
+test_index = X_test.index
 cat_features = [col for col in X_train.columns if X_train[col].dtype.name == 'category']
 train_data = lgb.Dataset(X_train, label=y_train, categorical_feature=cat_features)
 #val_data = lgb.Dataset(y_test.loc[y_test.dropna().index], label=y_test.dropna(), reference=train_data)
@@ -146,7 +164,7 @@ X_test = df_scaled.loc[test_index].drop(columns=["target", "fecha"])
 def total_error_callback(env):
     if env.iteration % 200 == 0 and env.iteration > 0:
         df_result = predict_test(env.model, X_test, real_target, test_index)
-        grouped, total_error = calculate_total_error(df_result)
+        grouped, total_error = calculate_total_error(df_result, iter=env.iteration)
         print(f"Iteration {env.iteration}, Total Error: {total_error:.4f}")
         print(grouped.sort_values(by='abs_error', ascending=False).head(10))
 
