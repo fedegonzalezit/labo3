@@ -78,44 +78,55 @@ class EnsambleKFoldWrapper:
         predictions = np.mean([model.predict(X) for model in self.models], axis=0)
         return pd.Series(predictions, index=X.index, name='predictions')
 
-
+import xgboost as xgb
 class XGBOOSTPipelineModel:
-    def __init__(self, params: Dict = None):
+    def __init__(self, params: Dict = None, callbacks=[]):
         self.params = params or {}
         self.model = None
+        self.callbacks = callbacks  # Callbacks to be used during training, if applicable
 
     def set_params(self, **params):
         self.params.update(params)
 
     def fit(self, X_train, y_train, X_eval, y_eval, weight=None):
-        from xgboost import XGBRegressor
         if isinstance(y_train, pd.DataFrame) and y_train.shape[1] > 1:
             raise ValueError("y_train must be a Series for single-target regression.")
-        self.model = XGBRegressor(**self.params, enable_categorical=True)
-        eval_sets = []
         y_eval = y_eval.dropna()
         if not y_eval.empty:
             X_eval = X_eval.loc[y_eval.index]
             for column in X_eval.columns:
-                # replace inf and -inf with 0
                 X_eval[column] = X_eval[column].replace([np.inf, -np.inf], 0)
-
-            eval_sets = [(X_eval, y_eval)]
+            evals = [(xgb.DMatrix(X_eval, y_eval, enable_categorical=True), 'Valid')]
+        else:
+            evals = []
         y_train = y_train.dropna()
         X_train = X_train.loc[y_train.index]
         for column in X_train.columns:
-            # replace inf and -inf with 0
             X_train[column] = X_train[column].replace([np.inf, -np.inf], 0)
-        self.model.fit(X_train, y_train, eval_set=eval_sets, verbose=True)
+
+        dtrain = xgb.DMatrix(X_train, y_train, enable_categorical=True)
+        def lr_schedule(iteration):
+            return 0.1 * (0.999 ** iteration)
+        self.callbacks.append(xgb.callback.LearningRateScheduler(lr_schedule))
+
+        self.model = xgb.train(
+            self.params,
+            dtrain,
+            evals=evals,
+            num_boost_round=self.params.get('n_estimators', 1000),
+            callbacks=self.callbacks,
+            verbose_eval=True
+        )
         return self
     
     def predict(self, X):
         if self.model is None:
             raise ValueError("Model has not been trained yet.")
         for column in X.columns:
-            # replace inf and -inf with 0
             X[column] = X[column].replace([np.inf, -np.inf], 0)
-        return pd.Series(self.model.predict(X), index=X.index, name='predictions')
+        dtest = xgb.DMatrix(X, enable_categorical=True)
+        return pd.Series(self.model.predict(dtest), index=X.index, name='predictions')
+    
 
 from sklearn.linear_model import Ridge
 

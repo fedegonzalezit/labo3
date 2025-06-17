@@ -198,12 +198,20 @@ class CreateTargetColumDiffStep(PipelineStep):
             #"integration_function": lambda x: x[self.target] + x['target']
         }
     
-
+import xgboost as xgb
 class PredictStep(PipelineStep):
     def execute(self, df, test_index, model, features) -> None:
         X_predict = df.loc[test_index][features]
-        predictions = model.predict(X_predict)
-        df["predictions"] = pd.Series(predictions, index=test_index)
+
+        if isinstance(model, xgb.Booster):
+            for column in X_predict.columns:
+                X_predict[column] = X_predict[column].replace([np.inf, -np.inf], 0)
+            dtest = xgb.DMatrix(X_predict, enable_categorical=True)
+            predictions =  pd.Series(model.predict(dtest), index=X_predict.index, name='predictions')
+            df["predictions"] = pd.Series(predictions, index=test_index)
+        else:
+            predictions = model.predict(X_predict)
+            df["predictions"] = pd.Series(predictions, index=test_index)
         return {"predictions": predictions, "df": df}
 
 

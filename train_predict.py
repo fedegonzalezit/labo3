@@ -451,14 +451,18 @@ model_pipeline = Pipeline(
         #    31: 0.8
         #}),
         TrainScalerFeatureStep(column="tn"),
-        TrainScalerFeatureStep(column="cust_request_qty"),
-        TransformScalerFeatureStep(
-            column=r'^(tn$|.*tn_lag.*|.*rolling_mean.*)$',
+        #TrainScalerFeatureStep(column="cust_request_qty"),
+        #TransformScalerFeatureStep(
+        #    column=r'^(tn$|.*tn_lag.*|.*rolling_mean.*)$',
+        #    regex=True,
+        #    scaler_name="scaler_tn"
+        #),
+        ScaleFeatureStep(
+            column=r'^(tn$|.*tn_lag.*|.*rolling_mean.*|.*rolling_diff.*|.*cust_request_qty.*|.*cust_request_tn.*|stock_final$)$',
             regex=True,
-            scaler_name="scaler_tn"
-        ),        
-        TransformScalerFeatureStep(column="cust_request_qty", scaler_name="scaler_cust_request_qty"),
-        CreateTargetColumStep(target_col="tn_scaled"),
+        ),
+        #TransformScalerFeatureStep(column="cust_request_qty", scaler_name="scaler_cust_request_qty"),
+        CreateTargetColumStep(target_col="tn"),
         TransformTargetDiffStep(),
         # creo una columna lag_2 del target que es la serie historica
         FeatureEngineeringLagStep(lags=[2], columns=["target"]),
@@ -474,8 +478,8 @@ model_pipeline = Pipeline(
                     steps=[
                         PredictStep(),
                         InverseTransformDiffStep(),
-                        InverseTransformScalerFeatureStep(column="target", scaler_name="scaler_tn"),
-                        InverseTransformScalerFeatureStep(column="predictions", scaler_name="scaler_tn"),
+                        #InverseTransformScalerFeatureStep(column="target", scaler_name="scaler_tn"),
+                        #InverseTransformScalerFeatureStep(column="predictions", scaler_name="scaler_tn"),
                         EvaluatePredictionsSteps(filter_file="product_id_apredecir201912.txt"),
                         PlotFeatureImportanceStep(),
                         SaveModelStep(base_path=BASE_PATH),

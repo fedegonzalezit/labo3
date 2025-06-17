@@ -447,6 +447,31 @@ class LGBCallback:
                 self.callback_pipeline.clear()
                 # Aquí podrías agregar más lógica si es necesario
         return callback
+    
+
+from xgboost.callback import TrainingCallback
+
+class XGBCallback:
+    def __init__(self, callback_pipeline, every_n_iter=250):
+        self.callback_pipeline = callback_pipeline
+        self.every_n_iter = every_n_iter
+
+    def __call__(self, parent_pipeline):
+        class _XGBPipelineCallback(TrainingCallback):
+            def after_iteration(inner_self, model, epoch, evals_log):
+                if epoch % self.every_n_iter == 0 and epoch > 0:
+                    print("Running callback at iteration:", epoch)
+                    # Guarda el modelo en cada n iteraciones
+                    self.callback_pipeline.save_artifact("model", model)
+                    self.callback_pipeline.save_artifact("iteration", epoch)
+                    # Cargo los artifacts del pipeline padre en este pipeline
+                    for artifact_name in parent_pipeline.artifacts.keys():
+                        artifact = parent_pipeline.get_artifact(artifact_name)
+                        self.callback_pipeline.save_artifact(artifact_name, artifact)
+                    self.callback_pipeline.run()
+                    self.callback_pipeline.clear()
+                return False  # return True to stop training
+        return _XGBPipelineCallback()
 
  
 model_pipeline = Pipeline(
@@ -462,33 +487,29 @@ model_pipeline = Pipeline(
         #}),
         # le agrega un 20% de peso a los primeros 10 productos contando desde 20001
 
-        TrainScalerFeatureStep(column="tn"),
-        TrainScalerFeatureStep(column="cust_request_qty"),
-        TransformScalerFeatureStep(
-            column=r'^(tn$|.*tn_lag.*|.*rolling_mean.*)$',
+        ScaleFeatureStep(
+            column=r'^(tn$|.*tn_lag.*|.*rolling_mean.*|.*diff.*|.*cust_request_qty.*|.*cust_request_tn.*|.*stock.*)$',
             regex=True,
-            scaler_name="scaler_tn",
-            override=False
-        ),             
-        TransformScalerFeatureStep(column="cust_request_qty", scaler_name="scaler_cust_request_qty", override=False),
-        CreateTargetColumStep(target_col="tn_scaled"),
+        ),
+        CreateTargetColumStep(target_col="tn"),
         TransformTargetDiffStep(),
         # creo una columna lag_2 del target que es la serie historica
-        FeatureEngineeringLagStep(lags=[2], columns=["target"]),
+        #FeatureEngineeringLagStep(lags=[2], columns=["target"]),
         # vuelvo a hacer FE de la nueva serie historica :)
-        FeatureEngineeringLagStep(lags=list(range(1,25)), columns=["target_lag_2"]),
-        DiffFeatureStep(periods=list(range(1,25)), columns=["target_lag_2"]),
+        #FeatureEngineeringLagStep(lags=list(range(1,25)), columns=["target_lag_2"]),
+        #DiffFeatureStep(periods=list(range(1,25)), columns=["target_lag_2"]),
         PrepareXYStep(),
         TrainModelStep(
-            params=params, 
+            params=params,
+            #model_cls=XGBOOSTPipelineModel,
             callbacks=[
                 LGBCallback(Pipeline(
                     name="callback_pipeline",
                     steps=[
                         PredictStep(),
                         InverseTransformDiffStep(),
-                        InverseTransformScalerFeatureStep(column="target", scaler_name="scaler_tn"),
-                        InverseTransformScalerFeatureStep(column="predictions", scaler_name="scaler_tn"),
+                        #InverseTransformScalerFeatureStep(column="target", scaler_name="scaler_tn"),
+                        #InverseTransformScalerFeatureStep(column="predictions", scaler_name="scaler_tn"),
                         EvaluatePredictionsSteps(filter_file=BASE_PATH+"product_id_apredecir201912.txt"),
                         KaggleSubmissionStep2(filter_file=BASE_PATH+"product_id_apredecir201912.txt"),
                         SaveSubmissionStep("exp_simple_diff", base_path=BASE_PATH),

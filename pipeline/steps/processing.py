@@ -534,7 +534,7 @@ class CreateTotalCategoryStep(PipelineStep):
         )
         # si self.divide_by_row es True, tn por la suma total de la fecha y lo multiplico por 1000 para evitar valores muy pequeños
         if self.div_by_row:
-            df[f"{self.tn}_{self.cat}_vendidas"] = 1000* df[self.tn]/ (df[f"{self.tn}_{self.cat}_vendidas"] + 1) 
+            df[f"{self.tn}_{self.cat}_vendidas_div"] =  df[self.tn]/ (df[f"{self.tn}_{self.cat}_vendidas"]) 
         return {"df": df}
 
 

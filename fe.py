@@ -391,7 +391,7 @@ fe_pipeline = Pipeline(
         ReduceMemoryUsageStep(),
 
         #GroupByProductStep(),
-        #FilterProductForTestingStep(total_products_ids=60, random=False),
+        FilterProductForTestingStep(total_products_ids=150, random=True),
         DateRelatedFeaturesStep(),
         #ProphetFeatureExtractionStep(), # por ahora para el dataset grande no lo uso
 
