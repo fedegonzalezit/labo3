@@ -25,6 +25,7 @@ def get_indexes(df):
     test_index = df.index[df['date_id'] == TEST_DATE]
     train_index = df.index[df['date_id'] <= TEST_DATE-2]
     train_scaler_index = df.index[df['date_id'] <= TEST_DATE]
+    return test_index, train_index, train_scaler_index
 
 test_index, train_index, train_scaler_index = get_indexes(df)
 
@@ -117,7 +118,7 @@ real_target = pd.DataFrame(df.groupby(['customer_id', 'product_id'])['tn'].shift
 
 
 def predict_test(model, X_test, real_target, test_index):
-    X_test = df_scaled.loc[test_index].drop(columns=["target", "fecha"])
+    X_test = df.loc[test_index].drop(columns=["target", "fecha"])
     predictions = model.predict(X_test)
     df_result = X_test[['customer_id', 'product_id', "tn_scaled", "tn"]].copy()
     df_result['predictions_scaled'] = predictions
@@ -226,7 +227,7 @@ model = lgb.train(
     #early_stopping_rounds=50
 )
 
-df_result = predict_test(model, df_scaled, real_target, test_index)
+df_result = predict_test(model, df, real_target, test_index)
 df_result["abs_error"] = np.abs(df_result['predictions'] - df_result['target'])
 #df_result["predictions_binary"] = predictions_df["predictions_binary"]
 print(df_result.head())
