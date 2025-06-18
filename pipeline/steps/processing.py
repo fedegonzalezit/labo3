@@ -167,10 +167,11 @@ import multiprocessing
 
 
 class RollingMeanFeatureStep(PipelineStep):
-    def __init__(self, windows: List[int], columns: List[str], name: Optional[str] = None):
+    def __init__(self, windows: List[int], columns: List[str], name: Optional[str] = None, n_jobs=-1):
         super().__init__(name)
         self.windows = windows
         self.columns = columns
+        self.n_jobs = n_jobs
 
     def _compute_rolling_mean(self, args):
         col, window, df_small = args
@@ -189,7 +190,9 @@ class RollingMeanFeatureStep(PipelineStep):
                 df_small = df[['product_id', 'customer_id', 'fecha', col]].copy()
                 tasks.append((col, window, df_small))
 
-        with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
+        if self.n_jobs == -1:
+            self.n_jobs = multiprocessing.cpu_count()
+        with multiprocessing.Pool(processes=self.n_jobs) as pool:
             results = pool.map(self._compute_rolling_mean, tasks)
 
         for col_name, series in results:
@@ -199,10 +202,11 @@ class RollingMeanFeatureStep(PipelineStep):
 
 
 class RollingStdFeatureStep(PipelineStep):
-    def __init__(self, windows: List[int], columns: List[str], name: Optional[str] = None):
+    def __init__(self, windows: List[int], columns: List[str], name: Optional[str] = None, n_jobs=-1):
         super().__init__(name)
         self.windows = windows
         self.columns = columns
+        self.n_jobs = n_jobs
 
     def _compute_rolling_std(self, args):
         col, window, df_small = args
@@ -221,7 +225,9 @@ class RollingStdFeatureStep(PipelineStep):
                 df_small = df[['product_id', 'customer_id', 'fecha', col]].copy()
                 tasks.append((col, window, df_small))
 
-        with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
+        if self.n_jobs == -1:
+            self.n_jobs = multiprocessing.cpu_count()
+        with multiprocessing.Pool(processes=self.n_jobs) as pool:
             results = pool.map(self._compute_rolling_std, tasks)
 
         for col_name, series in results:
@@ -319,10 +325,11 @@ class RollingAutocorrelationFeatureStep(PipelineStep):
 import multiprocessing
 
 class RollingMaxFeatureStep(PipelineStep):
-    def __init__(self, windows: int, columns: List[str], name: Optional[str] = None):
+    def __init__(self, windows: int, columns: List[str], name: Optional[str] = None, n_jobs=-1):
         super().__init__(name)
         self.windows = windows
         self.columns = columns
+        self.n_jobs = n_jobs
 
     def _compute_rolling_max(self, args):
         col, window, df = args
@@ -341,7 +348,9 @@ class RollingMaxFeatureStep(PipelineStep):
                 df_small = df[['product_id', 'customer_id', 'fecha', col]].copy()
                 tasks.append((col, window, df_small))
 
-        with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
+        if self.n_jobs == -1:
+            self.n_jobs = multiprocessing.cpu_count()
+        with multiprocessing.Pool(processes=self.n_jobs) as pool:
             results = pool.map(self._compute_rolling_max, tasks)
 
         for col_name, series in results:
@@ -351,10 +360,11 @@ class RollingMaxFeatureStep(PipelineStep):
     
 
 class RollingMinFeatureStep(PipelineStep):
-    def __init__(self, windows: int, columns: List[str], name: Optional[str] = None):
+    def __init__(self, windows: int, columns: List[str], name: Optional[str] = None, n_jobs=-1):
         super().__init__(name)
         self.windows = windows
         self.columns = columns
+        self.n_jobs = n_jobs
 
     def _compute_rolling_min(self, args):
         col, window, df = args
@@ -372,7 +382,9 @@ class RollingMinFeatureStep(PipelineStep):
                 df_small = df[['product_id', 'customer_id', 'fecha', col]].copy()
                 tasks.append((col, window, df_small))
 
-        with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
+        if self.n_jobs == -1:
+            self.n_jobs = multiprocessing.cpu_count()
+        with multiprocessing.Pool(processes=self.n_jobs) as pool:
             results = pool.map(self._compute_rolling_min, tasks)
 
         for col_name, series in results:
@@ -382,10 +394,11 @@ class RollingMinFeatureStep(PipelineStep):
 
 
 class RollingStdFeatureStep(PipelineStep):
-    def __init__(self, windows: int, columns: List[str], name: Optional[str] = None):
+    def __init__(self, windows: int, columns: List[str], name: Optional[str] = None, n_jobs=-1):
         super().__init__(name)
         self.windows = windows
         self.columns = columns
+        self.n_jobs = n_jobs
 
     def _compute_rolling_std(self, args):
         col, window, df = args
@@ -403,7 +416,9 @@ class RollingStdFeatureStep(PipelineStep):
                 df_small = df[['product_id', 'customer_id', 'fecha', col]].copy()
                 tasks.append((col, window, df_small))
 
-        with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
+        if self.n_jobs == -1:
+            self.n_jobs = multiprocessing.cpu_count()
+        with multiprocessing.Pool(processes=self.n_jobs) as pool:
             results = pool.map(self._compute_rolling_std, tasks)
 
         for col_name, series in results:
