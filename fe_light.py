@@ -391,35 +391,35 @@ fe_pipeline = Pipeline(
         ReduceMemoryUsageStep(),
 
         #GroupByProductStep(),
-        FilterProductForTestingStep(total_products_ids=100, random=True),
-        #FilterProductsIDStep(),
+        # FilterProductForTestingStep(total_products_ids=100, random=True),
+        FilterProductsIDStep(),
         DateRelatedFeaturesStep(),
         #ProphetFeatureExtractionStep(), # por ahora para el dataset grande no lo uso
 
         # features manuales: TODO agregar aca las del grupo
-        OperationBetweenColumnsStep(
-            column1="cust_request_qty",
-            column2="cust_request_tn",
-            operation="divide",
-            new_column_name="cust_request_qty_per_tn"
-        ),
         OperationBetweenColumnsStep(
             column1="cust_request_tn",
             column2="tn",
             operation="subtract",
             new_column_name="cust_request_tn_minus_tn"
         ),
+        OperationBetweenColumnsStep(
+            column1="tn",
+            column2="cust_request_qty",
+            operation="multiply",
+            new_column_name="tn_mult_cust_request_qty"
+        ),
         #TechnicalAnalysisFeaturesStep(column="tn"),
 
         # features estadisticas sobre tn
-        DiffFeatureStep(periods=[1,2,4,11,12], columns=["tn"]),
+        DiffFeatureStep(periods=[1,2,3,5,11], columns=["tn", "cust_request_qty"]),
 
-        FeatureEngineeringLagStep(lags=[1,2,3,4,6,11,12], columns=["tn", "tn_diff_2"]),
-        RollingMeanFeatureStep(windows=[3,12], columns=["tn", "tn_diff_2"]),
+        FeatureEngineeringLagStep(lags=[1,2,3,5,11], columns=["tn", "cust_request_qty"]),
+        RollingMeanFeatureStep(windows=[3,12], columns=["tn", "cust_request_qty"]),
         #RollingMedianFeatureStep(windows=list(range(2,15)), columns=["tn"]),
-        RollingStdFeatureStep(windows=[3,12], columns=["tn", "tn_diff_2"]),
-        RollingMaxFeatureStep(windows=[3,12,24], columns=["tn", "tn_diff_2"]),
-        RollingMinFeatureStep(windows=[3,12,24], columns=["tn", "tn_diff_2"]),
+        RollingStdFeatureStep(windows=[3,12], columns=["tn", "cust_request_qty"]),
+        RollingMaxFeatureStep(windows=[3,12], columns=["tn", "cust_request_qty"]),
+        RollingMinFeatureStep(windows=[3,12], columns=["tn", "cust_request_qty"]),
         #RollingSkewFeatureStep(windows=list(range(3,15)), columns=["tn"]),
         #RollingZscoreFeatureStep(windows=list(range(3,15)), columns=["tn"]),
         ReduceMemoryUsageStep(),
@@ -440,6 +440,9 @@ fe_pipeline = Pipeline(
         CreateTotalCategoryStep(cat="sku_size", div_by_row=True),
         CreateTotalCategoryStep(cat="product_id", div_by_row=True),
         CreateTotalCategoryStep(cat="customer_id", div_by_row=True),
+
+        CreateWeightByCustomerStep(),
+        CreateWeightByProductStep(),
 
         ReduceMemoryUsageStep(),
         DeleteBadColumns(),

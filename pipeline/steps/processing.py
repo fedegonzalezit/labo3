@@ -153,10 +153,7 @@ class FeatureEngineeringLagStep(PipelineStep):
 
 
     def execute(self, df: pd.DataFrame) -> dict:
-        # Ordenar por grupo y fecha para que los lags sean correctos
-
         df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
-        
         # Crear lags usando groupby y shift (vectorizado)
         grouped = df.groupby(['product_id', 'customer_id'])
         for column in self.columns:
