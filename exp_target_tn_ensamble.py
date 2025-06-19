@@ -31,12 +31,8 @@ test_index, train_index, train_scaler_index = get_indexes(df)
 
 numeric_columns = df.select_dtypes(include=['float64', "float32"]).columns
 print(numeric_columns)
-#transformations = {
-#    "tn": [r"tn$", r"cust_request_qty_per_tn$", r"tn_lag_*", r"tn_rolling_mean_*", r"tn_rolling_max_*", r"tn_rolling_min_*", r"tn_.*_vendidas$"],
-#    "stock_final": [r"stock_final$"],
-#    "cust_request_tn_minus_tn": [r"cust_request_tn_minus_tn$"],
-#    "tn_diff_2": [r"tn_diff_*"]
-#}
+
+
 transformations = {
     "tn": [r"tn$", r"cust_request_qty_per_tn$", r"tn_lag_*", r"tn_rolling_mean_*", r"tn_rolling_max_*", r"tn_rolling_min_*", r"tn_.*_vendidas$"] + 
     [r"stock_final$"] + [r"cust_request_tn_minus_tn$"] + [r"tn_diff_*"],
@@ -105,9 +101,6 @@ df, group_stats = scale_df(df, transformations)
 
 df['target'] = df.groupby(['customer_id', 'product_id'])['tn_scaled'].shift(-2)
 
-# le sumo 1 a target para poder usar gamma
-df['target'] = df['target'] + 1
-
 # agregar una feature categorica que es True is tn es 0
 df['tn_zero'] = df['tn_scaled'] == 0
 # Convertir a tipo categoría
@@ -117,21 +110,46 @@ print(df["target"].describe())
 
 real_target = pd.DataFrame(df.groupby(['customer_id', 'product_id'])['tn'].shift(-2))
 
+
+def zero_classifier(df):
+    from sklearn.calibration import CalibratedClassifierCV
+    from sklearn.metrics import roc_auc_score, average_precision_score
+
+    y_train = df.loc[train_index, 'target'].dropna()
+    y_train = (y_train > 0).astype(int)
+    X_train = df.loc[y_train.index].drop(columns=["target", "fecha"])
+    cat_features = [col for col in X_train.columns if X_train[col].dtype.name == 'category']
+
+
+    clf = lgb.LGBMClassifier(
+        objective="binary",
+        boosting_type="gbdt",
+        learning_rate=0.05,
+        num_leaves=31,
+        feature_fraction=0.8,
+        bagging_fraction=0.8,
+        bagging_freq=5,
+        verbose=-1,
+        n_estimators=500,
+        class_weight='balanced',
+    )
+    clf.fit(X_train, y_train, categorical_feature=cat_features)
+    probs = clf.predict_proba(X_train)[:, 1]
+
+    print("ROC AUC:", roc_auc_score(y_train, probs))
+    print("Average Precision:", average_precision_score(y_train, probs))
+
+    return clf
+
+print("Training zero classifier...")
+zero_clf = zero_classifier(df)
+
+# drop 0 targets from df because they were used to train the zero classifier
 y_train = df.loc[train_index, 'target'].dropna()
 X_train = df.loc[y_train.index].drop(columns=["target", "fecha"])
 
-
-# Marca los grupos donde tn_scaled es siempre 0
-mask = X_train.groupby(['customer_id', 'product_id'])['tn_scaled'].transform(lambda x: (x == 0).all())
-# Guarda los pares eliminados
-deleted_pairs = X_train.loc[mask, ['customer_id', 'product_id']].drop_duplicates()
-deleted_pairs_set = set(map(tuple, deleted_pairs.values))
-
-# Elimina las filas
-X_train = X_train[~mask]
-y_train = y_train.loc[X_train.index]
-print("Deleted series", len(deleted_pairs))
-
+y_train = y_train[y_train > 0]  # Keep only positive targets
+X_train = X_train.loc[y_train.index]
 
 
 y_test = df.loc[test_index, 'target']
@@ -162,11 +180,11 @@ X_test = df.loc[test_index].drop(columns=["target", "fecha"])
 
 def predict_test(model, X_test, real_target, test_index):
     X_test = df.loc[test_index].drop(columns=["target", "fecha"])
-    predictions = model.predict(X_test)
+    predictions_reg = model.predict(X_test)
+    predictions_cls = zero_clf.predict_proba(X_test)[:, 1]  # Probabilidad de que sea mayor a 0
     df_result = X_test[['customer_id', 'product_id', "tn_scaled", "tn"]].copy()
-    df_result['predictions_scaled'] = predictions - 1  # Restar 1 para revertir el +1 que se hizo a target
-    mask_deleted = df_result.apply(lambda row: (row['customer_id'], row['product_id']) in deleted_pairs_set, axis=1)
-    df_result.loc[mask_deleted, 'predictions_scaled'] = 0
+    df_result['predictions_scaled'] = predictions_reg
+    df_result['predictions_binary'] = predictions_cls
 
 
     # Mergeá las stats de tn
@@ -188,6 +206,9 @@ def predict_test(model, X_test, real_target, test_index):
 
     # multiplico predictions por predictions_df["predictions_binary"] que es el clasificador de 0s
     #df_result["predictions"] = df_result["predictions"] * predictions_df["predictions_binary"]
+
+    # Apply zero-inflated soft prediction
+    df_result['predictions'] = df_result['predictions'] * df_result['predictions_binary']
 
     df_result = df_result[['customer_id', 'product_id', 'predictions']]
     df_result["target"] = real_target.loc[test_index, "tn"]
@@ -220,9 +241,8 @@ def total_error_callback(env):
 # create learning_rate scheduler, arranca en 0.1 y cada iteracion baja 0.99 ** iter
 def learning_rate_scheduler(iteration):
     min_lr = 0.001
-    new_lr = 0.2 * (0.9975 ** iteration)
+    new_lr = 0.1 * (0.999 ** iteration)
     new_lr = max(new_lr, min_lr)  # Ensure the learning rate does not go below min_lr
-    print(f"Iteration {iteration}, Learning Rate: {new_lr:.6f}")
     return new_lr
 
 
@@ -244,11 +264,11 @@ callbacks = [
 # tweedie: 0.3492 (antes de overffitear)
 model = lgb.train(
     params={
-        'objective': 'tweedie',
+        'objective': 'gamma',
         'boosting_type': 'gbdt',
         'metric': 'rmse',
         'num_leaves': 31,
-        "tweedie_variance_power":1.1,
+        #"tweedie_variance_power":1.1,
         "force_row_wise":True,
         'learning_rate': 0.05,
         'feature_fraction': 0.8,

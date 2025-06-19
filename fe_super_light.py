@@ -391,7 +391,7 @@ fe_pipeline = Pipeline(
         ReduceMemoryUsageStep(),
 
         #GroupByProductStep(),
-        FilterProductForTestingStep(total_products_ids=20, random=False),
+        FilterProductForTestingStep(total_products_ids=200, random=False),
         #FilterProductsIDStep(),
         DateRelatedFeaturesStep(),
         #ProphetFeatureExtractionStep(), # por ahora para el dataset grande no lo uso
@@ -427,6 +427,7 @@ fe_pipeline = Pipeline(
         # features prophet sobre tn
         # features transversales
         FeatureEngineeringProductCatInteractionStep(cat="cat1", tn="tn", div_by_row=True),
+        FeatureEngineeringProductCatInteractionStep(cat="cat1", tn="cust_request_qty", div_by_row=True),
         #FeatureEngineeringProductCatInteractionStep(cat="cat2", tn="tn", div_by_row=True),
         #FeatureEngineeringProductCatInteractionStep(cat="cat3", tn="tn", div_by_row=True),
         #FeatureEngineeringProductCatInteractionStep(cat="brand", tn="tn", div_by_row=True),
@@ -440,6 +441,12 @@ fe_pipeline = Pipeline(
         #CreateTotalCategoryStep(cat="sku_size", div_by_row=True),
         CreateTotalCategoryStep(cat="product_id", div_by_row=True),
         CreateTotalCategoryStep(cat="customer_id", div_by_row=True),
+        
+        CreateTotalCategoryStep(tn="cust_request_qty", cat="cat3", div_by_row=True),
+        CreateTotalCategoryStep(tn="cust_request_qty", cat="brand", div_by_row=True),
+        #CreateTotalCategoryStep(cat="sku_size", div_by_row=True),
+        CreateTotalCategoryStep(tn="cust_request_qty", cat="product_id", div_by_row=True),
+        CreateTotalCategoryStep(tn="cust_request_qty", cat="customer_id", div_by_row=True),
 
         CreateWeightByCustomerStep(),
         CreateWeightByProductStep(),
