@@ -48,10 +48,16 @@ def scale_df(df, transformations):
     df_scaled = df # no hago copy intencionalmente
     train_scaler_df = df_scaled.loc[train_scaler_index]
 
+    def std(x):
+        q75 = x.quantile(0.75)
+        q25 = x.quantile(0.25)
+        return q75 - q25
+    
     prod_stats = (
         train_scaler_df.groupby('product_id')[list(transformations.keys())]
-        .agg(['mean', 'std'])
+        .agg(['mean', "std"])
     )
+    print(prod_stats.head())
 
     def custom_group_stats(group):
         product_id = group.name[1]
@@ -105,9 +111,6 @@ df, group_stats = scale_df(df, transformations)
 
 df['target'] = df.groupby(['customer_id', 'product_id'])['tn_scaled'].shift(-2)
 
-# le sumo 1 a target para poder usar gamma
-df['target'] = df['target'] + 1
-
 # agregar una feature categorica que es True is tn es 0
 df['tn_zero'] = df['tn_scaled'] == 0
 # Convertir a tipo categoría
@@ -150,7 +153,7 @@ def time_decay_weights(X_train, decay_factor=0.99):
         return weight
 
 
-weight = time_decay_weights(X_train, decay_factor=0.999)
+weight = time_decay_weights(X_train, decay_factor=0.95)
 print(weight.describe())
 
 train_data = lgb.Dataset(X_train, label=y_train, categorical_feature=cat_features, weight=weight)
@@ -164,7 +167,7 @@ def predict_test(model, X_test, real_target, test_index):
     X_test = df.loc[test_index].drop(columns=["target", "fecha"])
     predictions = model.predict(X_test)
     df_result = X_test[['customer_id', 'product_id', "tn_scaled", "tn"]].copy()
-    df_result['predictions_scaled'] = predictions - 1  # Restar 1 para revertir el +1 que se hizo a target
+    df_result['predictions_scaled'] = predictions 
     mask_deleted = df_result.apply(lambda row: (row['customer_id'], row['product_id']) in deleted_pairs_set, axis=1)
     df_result.loc[mask_deleted, 'predictions_scaled'] = 0
 
@@ -220,9 +223,10 @@ def total_error_callback(env):
 # create learning_rate scheduler, arranca en 0.1 y cada iteracion baja 0.99 ** iter
 def learning_rate_scheduler(iteration):
     min_lr = 0.001
-    new_lr = 0.2 * (0.9975 ** iteration)
+    new_lr = 0.125 * (0.999 ** iteration)
     new_lr = max(new_lr, min_lr)  # Ensure the learning rate does not go below min_lr
-    print(f"Iteration {iteration}, Learning Rate: {new_lr:.6f}")
+    if iteration % 50 == 0:
+        print(f"Iteration {iteration}, Learning Rate: {new_lr:.6f}")
     return new_lr
 
 
@@ -251,8 +255,8 @@ model = lgb.train(
         "tweedie_variance_power":1.1,
         "force_row_wise":True,
         'learning_rate': 0.05,
-        'feature_fraction': 0.8,
-        'bagging_fraction': 0.8,
+        'feature_fraction': 0.9,
+        'bagging_fraction': 0.9,
         'bagging_freq': 5,
         'verbose': -1,
         #'max_depth': 10,

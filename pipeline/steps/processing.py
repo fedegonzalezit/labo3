@@ -551,47 +551,49 @@ class CreateTotalCategoryStep(PipelineStep):
 
 
 class CreateWeightByCustomerStep(PipelineStep):
-    def __init__(self, name: Optional[str] = None):
+    def __init__(self, name: Optional[str] = None, tn= "tn"):
         super().__init__(name)
+        self.tn = tn
 
     def execute(self, df: pd.DataFrame) -> Dict:
         # Aseguramos orden estable (opcional, mejora legibilidad)
         df = df.sort_values(['fecha', 'customer_id'])
         
         # 1) Sumatoria de 'tn' por (fecha, customer_id) directamente en cada fila
-        df['tn_customer_vendidas'] = (
-            df.groupby(['fecha', 'customer_id'])['tn']
+        df[f'{self.tn}_customer_vendidas'] = (
+            df.groupby(['fecha', 'customer_id'])[self.tn]
               .transform('sum')
         )
         # 2) Sumatoria total de 'tn' por fecha
-        df['tn_total_vendidas'] = (
-            df.groupby('fecha')['tn']
+        df[f'{self.tn}_total_vendidas'] = (
+            df.groupby('fecha')[self.tn]
               .transform('sum')
         )
         # 3) Ratio
-        df['customer_weight'] = df['tn_customer_vendidas'] / df['tn_total_vendidas']
+        df[f'{self.tn}_customer_weight'] = df[f'{self.tn}_customer_vendidas'] / df[f'{self.tn}_total_vendidas']
         return {"df": df}
     
 
 class CreateWeightByProductStep(PipelineStep):
-    def __init__(self, name: Optional[str] = None):
+    def __init__(self, name: Optional[str] = None, tn= "tn"):
         super().__init__(name)
+        self.tn = tn
 
     def execute(self, df: pd.DataFrame) -> Dict:
         # Aseguramos orden estable (opcional, mejora legibilidad)
         df = df.sort_values(['fecha', 'product_id'])
         # 1) Sumatoria de 'tn' por (fecha, product_id) directamente en cada fila
-        df['tn_product_vendidas'] = (
-            df.groupby(['fecha', 'product_id'])['tn']
+        df[f'{self.tn}_product_vendidas'] = (
+            df.groupby(['fecha', 'product_id'])[self.tn]
               .transform('sum')
         )
         # 2) Sumatoria total de 'tn' por fecha
-        df['tn_total_vendidas'] = (
-            df.groupby('fecha')['tn']
+        df[f'{self.tn}_total_vendidas'] = (
+            df.groupby('fecha')[self.tn]
               .transform('sum')
         )
         # 3) Ratio
-        df['product_weight'] = df['tn_product_vendidas'] / df['tn_total_vendidas']
+        df[f'{self.tn}_product_weight'] = df[f'{self.tn}_product_vendidas'] / df[f'{self.tn}_total_vendidas']
         return {"df": df}
     
 
