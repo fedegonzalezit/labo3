@@ -439,6 +439,7 @@ fe_pipeline = Pipeline(
         FeatureEngineeringProductCatInteractionStep(cat="cat3", tn="cust_request_qty", div_by_row=True),
         FeatureEngineeringProductCatInteractionStep(cat="brand", tn="cust_request_qty", div_by_row=True),
         FeatureEngineeringProductCatInteractionStep(cat="sku_size", tn="cust_request_qty", div_by_row=True),
+        ReduceMemoryUsageStep(),
 
         CreateTotalCategoryStep(cat="cat1", div_by_row=True),
         CreateTotalCategoryStep(cat="cat2", div_by_row=True),
@@ -447,6 +448,7 @@ fe_pipeline = Pipeline(
         CreateTotalCategoryStep(cat="sku_size", div_by_row=True),
         CreateTotalCategoryStep(cat="product_id", div_by_row=True),
         CreateTotalCategoryStep(cat="customer_id", div_by_row=True),
+        ReduceMemoryUsageStep(),
 
         CreateTotalCategoryStep(cat="cat1", div_by_row=True, tn="cust_request_qty"),
         CreateTotalCategoryStep(cat="cat2", div_by_row=True, tn="cust_request_qty"),
@@ -455,6 +457,7 @@ fe_pipeline = Pipeline(
         CreateTotalCategoryStep(cat="sku_size", div_by_row=True, tn="cust_request_qty"),
         CreateTotalCategoryStep(cat="product_id", div_by_row=True, tn="cust_request_qty"),
         CreateTotalCategoryStep(cat="customer_id", div_by_row=True, tn="cust_request_qty"),
+        ReduceMemoryUsageStep(),
 
         CreateWeightByCustomerStep(),
         CreateWeightByProductStep(),
