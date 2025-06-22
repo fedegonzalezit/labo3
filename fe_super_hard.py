@@ -392,7 +392,7 @@ fe_pipeline = Pipeline(
 
         #GroupByProductStep(),
         # FilterProductForTestingStep(total_products_ids=100, random=True),
-        FilterProductsIDStep(),
+        FilterProductsIDStep(BASE_PATH+"product_id_apredecir201912.txt"),
         DateRelatedFeaturesStep(),
         #ProphetFeatureExtractionStep(), # por ahora para el dataset grande no lo uso
 
@@ -413,14 +413,14 @@ fe_pipeline = Pipeline(
         TechnicalAnalysisFeaturesStep(column="cust_request_qty"),
 
         # features estadisticas sobre tn
-        DiffFeatureStep(periods=list(range(1,37)), columns=["tn", "cust_request_qty"]),
+        DiffFeatureStep(periods=list(range(1,35)), columns=["tn", "cust_request_qty"]),
 
-        FeatureEngineeringLagStep(lags=list(range(1,37)), columns=["tn", "cust_request_qty"]),
-        RollingMeanFeatureStep(windows=list(range(2,37)), columns=["tn", "cust_request_qty"]),
+        FeatureEngineeringLagStep(lags=list(range(1,35)), columns=["tn", "cust_request_qty"]),
+        RollingMeanFeatureStep(windows=list(range(2,35)), columns=["tn", "cust_request_qty"]),
         #RollingMedianFeatureStep(windows=list(range(2,15)), columns=["tn"]),
-        RollingStdFeatureStep(windows=list(range(2,37)), columns=["tn", "cust_request_qty"]),
-        RollingMaxFeatureStep(windows=list(range(2,37)), columns=["tn", "cust_request_qty"]),
-        RollingMinFeatureStep(windows=list(range(2,37)), columns=["tn", "cust_request_qty"]),
+        RollingStdFeatureStep(windows=list(range(2,35)), columns=["tn", "cust_request_qty"]),
+        RollingMaxFeatureStep(windows=list(range(2,35)), columns=["tn", "cust_request_qty"]),
+        RollingMinFeatureStep(windows=list(range(2,35)), columns=["tn", "cust_request_qty"]),
         #RollingSkewFeatureStep(windows=list(range(3,15)), columns=["tn"]),
         #RollingZscoreFeatureStep(windows=list(range(2,37)), columns=["tn"]),
         ReduceMemoryUsageStep(),
@@ -429,16 +429,16 @@ fe_pipeline = Pipeline(
         # features transversales
         FeatureEngineeringProductCatInteractionStep(cat="cat1", tn="tn", div_by_row=True),
         FeatureEngineeringProductCatInteractionStep(cat="cat2", tn="tn", div_by_row=True),
-        FeatureEngineeringProductCatInteractionStep(cat="cat3", tn="tn", div_by_row=True),
+        #FeatureEngineeringProductCatInteractionStep(cat="cat3", tn="tn", div_by_row=True),
         FeatureEngineeringProductCatInteractionStep(cat="brand", tn="tn", div_by_row=True),
-        FeatureEngineeringProductCatInteractionStep(cat="sku_size", tn="tn", div_by_row=True),
+        #FeatureEngineeringProductCatInteractionStep(cat="sku_size", tn="tn", div_by_row=True),
         ReduceMemoryUsageStep(),
 
         FeatureEngineeringProductCatInteractionStep(cat="cat1", tn="cust_request_qty", div_by_row=True),
         FeatureEngineeringProductCatInteractionStep(cat="cat2", tn="cust_request_qty", div_by_row=True),
-        FeatureEngineeringProductCatInteractionStep(cat="cat3", tn="cust_request_qty", div_by_row=True),
+        #FeatureEngineeringProductCatInteractionStep(cat="cat3", tn="cust_request_qty", div_by_row=True),
         FeatureEngineeringProductCatInteractionStep(cat="brand", tn="cust_request_qty", div_by_row=True),
-        FeatureEngineeringProductCatInteractionStep(cat="sku_size", tn="cust_request_qty", div_by_row=True),
+        #FeatureEngineeringProductCatInteractionStep(cat="sku_size", tn="cust_request_qty", div_by_row=True),
         ReduceMemoryUsageStep(),
 
         CreateTotalCategoryStep(cat="cat1", div_by_row=True),

@@ -40,7 +40,8 @@ print(numeric_columns)
 transformations = {
     "tn": [r"tn$", r"cust_request_qty_per_tn$", r"tn_lag_*", r"tn_rolling_mean_*", r"tn_rolling_max_*", r"tn_rolling_min_*", r"tn_.*_vendidas$"] + 
     [r"stock_final$"] + [r"cust_request_tn_minus_tn$"] + [r"tn_diff_*"],
-    "cust_request_qty": [r"cust_request_qty_*"]
+    "cust_request_qty": [r"cust_request_qty$", r"cust_request_qty_lag_*", r"cust_request_qty_rolling_mean_*", r"cust_request_qty_rolling_max_*", r"cust_request_qty_rolling_min_*", r"cust_request_qty_.*_vendidas$"] + 
+    + [r"cust_request_qty_diff_*"],
 }
 
 
@@ -48,11 +49,6 @@ def scale_df(df, transformations):
     df_scaled = df # no hago copy intencionalmente
     train_scaler_df = df_scaled.loc[train_scaler_index]
 
-    def std(x):
-        q75 = x.quantile(0.75)
-        q25 = x.quantile(0.25)
-        return q75 - q25
-    
     prod_stats = (
         train_scaler_df.groupby('product_id')[list(transformations.keys())]
         .agg(['mean', "std"])
@@ -171,26 +167,15 @@ def predict_test(model, X_test, real_target, test_index):
     mask_deleted = df_result.apply(lambda row: (row['customer_id'], row['product_id']) in deleted_pairs_set, axis=1)
     df_result.loc[mask_deleted, 'predictions_scaled'] = 0
 
-
     # Mergeá las stats de tn
     df_result = df_result.merge(
         group_stats[['customer_id', 'product_id', "tn_std", "tn_mean"]],
-        #group_stats[['product_id', 'tn_diff_2_mean', 'tn_diff_2_std', "tn_std", "tn_mean"]],
-        #group_stats[['customer_id', 'product_id', 'tn_diff_2_median', 'tn_diff_2_iqr', "tn_iqr", "tn_median"]],
         on=['customer_id', 'product_id'],
-        #on=['product_id'],
         how='left'
     )
-    df_result.set_index(test_index, inplace=True)
-    #df_result['predictions'] = df_result['predictions_scaled'] * df_result['tn_std'] + df_result['tn_mean']
-    df_result['predictions'] = df_result['predictions_scaled'] * df_result['tn_std']
-    #df_result['predictions'] = df_result['predictions_scaled'] * df_result['tn_std'] + df_result['tn_mean']
-    # hago la inversa de la diferencia con tn
-    #df_result["predictions"] = df_result['predictions'] + df_result['tn']
-    # Invertí el escalado
 
-    # multiplico predictions por predictions_df["predictions_binary"] que es el clasificador de 0s
-    #df_result["predictions"] = df_result["predictions"] * predictions_df["predictions_binary"]
+    df_result.set_index(test_index, inplace=True)
+    df_result['predictions'] = df_result['predictions_scaled'] * df_result['tn_std']
 
     df_result = df_result[['customer_id', 'product_id', 'predictions']]
     df_result["target"] = real_target.loc[test_index, "tn"]
@@ -230,22 +215,13 @@ def learning_rate_scheduler(iteration):
     return new_lr
 
 
-def num_leaves_scheduler(iteration):
-    # Reduce the number of leaves as the iterations increase
-    return max(17, 512 - iteration )  # Ensure it doesn't go below 31
-
 callbacks = [
     lgb.log_evaluation(period=50),
     total_error_callback, 
     lgb.reset_parameter(learning_rate=learning_rate_scheduler)
 ]
-# poisson: 0.38
-# huber: 0.3612
-# fair: 0.39
-# quantile: 2??
-# mape: 0.5 - no sirve con labels menores a 1
-# gamma (esta deberia usarlo si hago transformacion log):  da errores
-# tweedie: 0.3492 (antes de overffitear)
+
+
 model = lgb.train(
     params={
         'objective': 'tweedie',
@@ -254,12 +230,10 @@ model = lgb.train(
         'num_leaves': 31,
         "tweedie_variance_power":1.1,
         "force_row_wise":True,
-        'learning_rate': 0.05,
         'feature_fraction': 0.9,
         'bagging_fraction': 0.9,
         'bagging_freq': 5,
         'verbose': -1,
-        #'max_depth': 10,
         "max_bin": 512,
         "verbose": 0
     },
@@ -267,7 +241,6 @@ model = lgb.train(
     num_boost_round=2000,
     callbacks=callbacks,
     valid_sets=[train_data],
-    #early_stopping_rounds=50
 )
 
 df_result = predict_test(model, df, real_target, test_index)
