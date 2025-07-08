@@ -75,36 +75,21 @@ class InverseLog1pTranformation(PipelineStep):
 
 class GroupByProductStep(PipelineStep):
     def execute(self, df) -> None:
-        grouped = df.groupby(["product_id", "fecha"]).agg(
-            cust_request_qty=('cust_request_qty', 'sum'),
-            cust_request_qty_agg_std=('cust_request_qty', 'std'),
-            cust_request_qty_agg_mean=('cust_request_qty', 'mean'),
-            cust_request_qty_agg_max=('cust_request_qty', 'max'),
-            cust_request_qty_agg_min=('cust_request_qty', 'min'),
-            cust_request_tn=('cust_request_tn', 'sum'),
-            tn=('tn', 'sum'),
-            tn_agg_std=('tn', 'std'),
-            tn_agg_mean=('tn', 'mean'),
-            tn_agg_max=('tn', 'max'),
-            tn_agg_min=('tn', 'min'),
-            stock_final=('stock_final', 'max'),
-            cat1=('cat1', 'first'),
-            cat2=('cat2', 'first'),
-            cat3=('cat3', 'first'),
-            brand=('brand', 'first'),
-            sku_size=('sku_size', 'max'),
-        ).reset_index()
-
-        # Calcular el total de customer_id con tn == 0 para cada product_id y fecha
-        zero_tn = df[df['tn'] == 0].groupby(['product_id', 'fecha'])['customer_id'].nunique().reset_index()
-        zero_tn = zero_tn.rename(columns={'customer_id': 'customer_id_tn_zero_count'})
-        grouped = grouped.merge(zero_tn, on=['product_id', 'fecha'], how='left')
-        grouped['customer_id_tn_zero_count'] = grouped['customer_id_tn_zero_count'].fillna(0).astype(int)
-
-        # le dejo la columna customer_id = 1 para que no crashee el resto
-        grouped['customer_id'] = 1
-        print(grouped.head().to_string())
-        return {"df": grouped}
+        # Agrupo el dataframe por product_id y fecha, sumando las cantidades
+        df = df.groupby(["product_id", "fecha"]).agg({
+            'cust_request_qty': 'sum',
+            'cust_request_tn': 'sum',
+            'tn': 'sum',
+            'stock_final': 'max',
+            'cat1': 'first',
+            'cat2': 'first',
+            'cat3': 'first',
+            'brand': 'first',
+            'sku_size': 'max',
+        }).reset_index()
+        # le dejo la columna customer_id = 0 para que no crashee el resto
+        df['customer_id'] = 1
+        return {"df": df}
 
 class FilterDatasetByColumn(PipelineStep):
     def __init__(self, column: str, value, name: Optional[str] = None):
@@ -333,8 +318,6 @@ class TechnicalAnalysisFeaturesStep(PipelineStep):
         df_ta = pd.concat(dfs, axis=0)
         # Solo las columnas nuevas
         new_cols = [col for col in df_ta.columns if col not in df.columns]
-        # replace inf and -inf with NaN
-        df_ta[new_cols] = df_ta[new_cols].replace([np.inf, -np.inf], np.nan)
         # Merge por claves
         df = df.merge(
             df_ta[["date_id", "product_id", "customer_id"] + new_cols],
@@ -373,9 +356,9 @@ class TechnicalAnalysisFeaturesStep(PipelineStep):
         # DPOIndicator
         df[f"{self.column}_dpo"] = ta.trend.DPOIndicator(df[self.column], window=8).dpo()
         #MACD
-        #df[f"{self.column}_macd"] = ta.trend.MACD(df[self.column], window_slow=13, window_fast=6, window_sign=3).macd()
+        df[f"{self.column}_macd"] = ta.trend.MACD(df[self.column], window_slow=13, window_fast=6, window_sign=3).macd()
         #df[f"{self.column}_macd_signal"] = ta.trend.MACD(df[self.column], window_slow=13, window_fast=6, window_sign=3).macd_signal()
-        df[f"{self.column}_macd_diff"] = ta.trend.MACD(df[self.column], window_slow=13, window_fast=6, window_sign=3).macd_diff()
+        #df[f"{self.column}_macd_diff"] = ta.trend.MACD(df[self.column], window_slow=13, window_fast=6, window_sign=3).macd_diff()
         # TRIXIndicator
         #df[f"{self.column}_trix"] = ta.trend.TRIXIndicator(df[self.column], window=12).trix()
         return df
@@ -401,101 +384,90 @@ class OperationBetweenColumnsStep(PipelineStep):
             raise ValueError(f"Unsupported operation: {self.operation}")
         
         return {"df": df}
-
-class ProductBetweenColumnsStep(PipelineStep):
-    def __init__(self, name: Optional[str] = None, num_columns=None):
-        super().__init__(name)
-        self.num_columns = num_columns
-
-    def execute(self, df):
-        # hace la combinacion de multiplicar todas las columnas numericas sin repeticion
-
-        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-        # se queda con las N num_columns con mayor varianza
-        if self.num_columns:
-            numeric_cols = sorted(numeric_cols, key=lambda col: df[col].var(), reverse=True)[:self.num_columns]
-
-        for i in range(len(numeric_cols)):
-            for j in range(i + 1, len(numeric_cols)):
-                col1 = numeric_cols[i]
-                col2 = numeric_cols[j]
-                new_col_name = f"prod_{col1}_x_{col2}"
-                df[new_col_name] = df[col1] * df[col2]
-        return {"df": df}
-
+    
 fe_pipeline = Pipeline(
     steps=[
         LoadDataFrameStep(BASE_PATH+"df_intermedio.parquet"),
         ReduceMemoryUsageStep(),
 
-        #GroupByProductStep(),
-        FilterRowsByBestCustomers(best_customers=10, group_others=True),
-        #FilterProductForTestingStep(total_products_ids=10, random=False),
-        #FilterProductsIDStep(),
+        GroupByProductStep(),
+        FilterProductForTestingStep(total_products_ids=100, random=True),
+        #FilterProductsIDStep(BASE_PATH+"product_id_apredecir201912.txt"),
         DateRelatedFeaturesStep(),
         #ProphetFeatureExtractionStep(), # por ahora para el dataset grande no lo uso
 
         # features manuales: TODO agregar aca las del grupo
-        #OperationBetweenColumnsStep(
-        #    column1="cust_request_tn",
-        #    column2="tn",
-        #    operation="subtract",
-        #    new_column_name="cust_request_tn_minus_tn"
-        #),
-        #OperationBetweenColumnsStep(
-        #    column1="tn",
-        #    column2="cust_request_qty",
-        #    operation="multiply",
-        #    new_column_name="tn_mult_cust_request_qty"
-        #),
-        TechnicalAnalysisFeaturesStep(column="tn"),
+        OperationBetweenColumnsStep(
+            column1="cust_request_tn",
+            column2="tn",
+            operation="subtract",
+            new_column_name="cust_request_tn_minus_tn"
+        ),
+        OperationBetweenColumnsStep(
+            column1="tn",
+            column2="cust_request_qty",
+            operation="multiply",
+            new_column_name="tn_mult_cust_request_qty"
+        ),
+        #TechnicalAnalysisFeaturesStep(column="tn"),
+        #TechnicalAnalysisFeaturesStep(column="cust_request_qty"),
 
         # features estadisticas sobre tn
-        DiffFeatureStep(periods=[1,2,3,5,11], columns=["tn", "cust_request_qty"]),
+        DiffFeatureStep(periods=list(range(1,24)), columns=["tn", "cust_request_qty"]),
 
-        RollingMeanFeatureStep(windows=[6, 12], columns=["tn", "cust_request_qty"]),
-        FeatureEngineeringLagStep(lags=[1,2,3,11,15], columns=["tn", "cust_request_qty"]),
-        RollingStdFeatureStep(windows=[6, 12, 24], columns=["tn", "cust_request_qty"]),
-        RollingMaxFeatureStep(windows=[6, 12, 24], columns=["tn", "cust_request_qty"]),
-        RollingMinFeatureStep(windows=[6, 12, 24], columns=["tn", "cust_request_qty"]),
+        FeatureEngineeringLagStep(lags=list(range(1,24)), columns=["tn", "cust_request_qty"]),
+        RollingMeanFeatureStep(windows=list(range(2,24)), columns=["tn", "cust_request_qty"]),
+        DiffFeatureStep(periods=[1,2,6,8], columns=["tn_rolling_mean_4", "tn_rolling_mean_12"]),
+        FeatureEngineeringLagStep(lags=list(range(1,10)), columns=["tn_rolling_mean_12"]),
+        #RollingMedianFeatureStep(windows=list(range(2,15)), columns=["tn"]),
+        RollingStdFeatureStep(windows=list(range(2,24)), columns=["tn", "cust_request_qty"]),
+        RollingMaxFeatureStep(windows=list(range(2,24)), columns=["tn", "cust_request_qty"]),
+        RollingMinFeatureStep(windows=list(range(2,24)), columns=["tn", "cust_request_qty"]),
         #RollingSkewFeatureStep(windows=list(range(3,15)), columns=["tn"]),
-        #RollingZscoreFeatureStep(windows=list(range(3,15)), columns=["tn"]),
+        #RollingZscoreFeatureStep(windows=list(range(2,37)), columns=["tn"]),
         ReduceMemoryUsageStep(),
 
         # features prophet sobre tn
         # features transversales
-        FeatureEngineeringProductCatInteractionStep(cat="cat1", tn="tn", div_by_row=False),
-        FeatureEngineeringProductCatInteractionStep(cat="cat1", tn="cust_request_qty", div_by_row=False),
-        FeatureEngineeringProductCatInteractionStep(cat="cat2", tn="tn", div_by_row=False),
-        FeatureEngineeringProductCatInteractionStep(cat="cat3", tn="tn", div_by_row=False),
-        FeatureEngineeringProductCatInteractionStep(cat="brand", tn="tn", div_by_row=False),
-        FeatureEngineeringProductCatInteractionStep(cat="sku_size", tn="tn", div_by_row=False),
-        #ReduceMemoryUsageStep(),
+        FeatureEngineeringProductCatInteractionStep(cat="cat1", tn="tn", div_by_row=True),
+        FeatureEngineeringProductCatInteractionStep(cat="cat2", tn="tn", div_by_row=True),
+        #FeatureEngineeringProductCatInteractionStep(cat="cat3", tn="tn", div_by_row=True),
+        #FeatureEngineeringProductCatInteractionStep(cat="brand", tn="tn", div_by_row=True),
+        #FeatureEngineeringProductCatInteractionStep(cat="sku_size", tn="tn", div_by_row=True),
+        ReduceMemoryUsageStep(),
 
-        CreateTotalCategoryStep(cat="cat1", div_by_row=False),
-        CreateTotalCategoryStep(cat="cat2", div_by_row=False),
-        CreateTotalCategoryStep(cat="cat3", div_by_row=False),
-        CreateTotalCategoryStep(cat="brand", div_by_row=False),
-        CreateTotalCategoryStep(cat="sku_size", div_by_row=False),
-        CreateTotalCategoryStep(cat="product_id", div_by_row=False),
-        CreateTotalCategoryStep(cat="customer_id", div_by_row=False),
-        
-        CreateTotalCategoryStep(tn="cust_request_qty", cat="cat3", div_by_row=False),
-        CreateTotalCategoryStep(tn="cust_request_qty", cat="brand", div_by_row=False),
-        CreateTotalCategoryStep(tn="cust_request_qty", cat="sku_size", div_by_row=False),
-        CreateTotalCategoryStep(tn="cust_request_qty", cat="product_id", div_by_row=False),
-        CreateTotalCategoryStep(tn="cust_request_qty", cat="customer_id", div_by_row=False),
+        FeatureEngineeringProductCatInteractionStep(cat="cat1", tn="cust_request_qty", div_by_row=True),
+        FeatureEngineeringProductCatInteractionStep(cat="cat2", tn="cust_request_qty", div_by_row=True),
+        #FeatureEngineeringProductCatInteractionStep(cat="cat3", tn="cust_request_qty", div_by_row=True),
+        #FeatureEngineeringProductCatInteractionStep(cat="brand", tn="cust_request_qty", div_by_row=True),
+        #FeatureEngineeringProductCatInteractionStep(cat="sku_size", tn="cust_request_qty", div_by_row=True),
+        ReduceMemoryUsageStep(),
 
-        CreateWeightByCustomerStep(),
+        CreateTotalCategoryStep(cat="cat1", div_by_row=True),
+        CreateTotalCategoryStep(cat="cat2", div_by_row=True),
+        CreateTotalCategoryStep(cat="cat3", div_by_row=True),
+        CreateTotalCategoryStep(cat="brand", div_by_row=True),
+        CreateTotalCategoryStep(cat="sku_size", div_by_row=True),
+        CreateTotalCategoryStep(cat="product_id", div_by_row=True),
+        ReduceMemoryUsageStep(),
+
+        CreateTotalCategoryStep(cat="cat1", div_by_row=True, tn="cust_request_qty"),
+        CreateTotalCategoryStep(cat="cat2", div_by_row=True, tn="cust_request_qty"),
+        CreateTotalCategoryStep(cat="cat3", div_by_row=True, tn="cust_request_qty"),
+        CreateTotalCategoryStep(cat="brand", div_by_row=True, tn="cust_request_qty"),
+        CreateTotalCategoryStep(cat="sku_size", div_by_row=True, tn="cust_request_qty"),
+        CreateTotalCategoryStep(cat="product_id", div_by_row=True, tn="cust_request_qty"),
+        ReduceMemoryUsageStep(),
+
+        #CreateWeightByCustomerStep(),
         CreateWeightByProductStep(),
-        ProductBetweenColumnsStep(num_columns=10),
+
+        #CreateWeightByCustomerStep(tn="cust_request_qty"),
+        CreateWeightByProductStep(tn="cust_request_qty"),
 
         ReduceMemoryUsageStep(),
         DeleteBadColumns(),
-        SaveDataFrameStep(df_name="df", file_name=BASE_PATH+"df_fe_epic_big_best_customers_10c.pickle")
+        SaveDataFrameStep(df_name="df", file_name=BASE_PATH+"df_fe_super_hard_grouped.pickle")
     ]
 )
-
-
-
 fe_pipeline.run()

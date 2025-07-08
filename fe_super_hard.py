@@ -392,23 +392,12 @@ fe_pipeline = Pipeline(
 
         #GroupByProductStep(),
         # FilterProductForTestingStep(total_products_ids=100, random=True),
-        FilterProductsIDStep(BASE_PATH+"product_id_apredecir201912.txt"),
+        #FilterProductsIDStep(BASE_PATH+"product_id_apredecir201912.txt"),
         DateRelatedFeaturesStep(),
         #ProphetFeatureExtractionStep(), # por ahora para el dataset grande no lo uso
 
         # features manuales: TODO agregar aca las del grupo
-        OperationBetweenColumnsStep(
-            column1="cust_request_tn",
-            column2="tn",
-            operation="subtract",
-            new_column_name="cust_request_tn_minus_tn"
-        ),
-        OperationBetweenColumnsStep(
-            column1="tn",
-            column2="cust_request_qty",
-            operation="multiply",
-            new_column_name="tn_mult_cust_request_qty"
-        ),
+
         TechnicalAnalysisFeaturesStep(column="tn"),
         TechnicalAnalysisFeaturesStep(column="cust_request_qty"),
 

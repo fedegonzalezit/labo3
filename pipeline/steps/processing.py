@@ -79,7 +79,52 @@ class FilterProductForTestingStep(PipelineStep):
             df = df[df['product_id'].isin(products)]
         print(f"Filtered DataFrame shape: {df.shape}")
         return {"df": df}
+
+
+class FilterRowsByBestCustomers(PipelineStep):
+    def __init__(self, best_customers: int = 20, name: Optional[str] = None, group_others=False):
+        super().__init__(name)
+        self.best_customers = best_customers
+        self.group_others = group_others
     
+    def execute(self, df: pd.DataFrame) -> Dict:
+        """
+        Filtra el DataFrame para que contenga solo los mejores clientes (los que más compran)
+        """
+        # Agrupar por customer_id y sumar las ventas
+        best_customers = (
+            df.groupby('customer_id')['tn']
+            .sum()
+            .nlargest(self.best_customers)
+            .index
+        )
+        df_new = df[df['customer_id'].isin(best_customers)]
+
+        if self.group_others:
+            # Si es true creo un nuevo customer_id 0 que tiene la suma de los tn de los clientes que no estan en los mejores
+            df_others = df[~df['customer_id'].isin(best_customers)].copy()
+            df_others['customer_id'] = 0  # Agrupo los otros clientes bajo el ID 0
+            df_others = df_others.groupby(['product_id', "fecha"]).agg({
+                "cust_request_qty": "sum",
+                "cust_request_tn": "sum",
+                "tn": "sum",
+                "stock_final": "max",
+                "cat1": "first",
+                "cat2": "first",
+                "cat3": "first",
+                "brand": "first",
+                "sku_size": "first",
+                "customer_id": "first",
+            }
+            ).reset_index()
+            df_new = pd.concat([df_new, df_others], ignore_index=True)
+            # ordeno el df por date_id, product y customer
+            df_new = df_new.sort_values(by=['fecha', 'product_id', 'customer_id'])
+
+        # Filtrar el DataFrame original
+        print(f"Filtered DataFrame shape: {df_new.shape}")
+        return {"df": df_new}
+
 
 class CastDataTypesStep(PipelineStep):
     def __init__(self, dtypes: Dict[str, str], name: Optional[str] = None):
