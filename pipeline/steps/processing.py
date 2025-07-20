@@ -189,18 +189,26 @@ class FilterFirstDateStep(PipelineStep):
     
 
 class FeatureEngineeringLagStep(PipelineStep):
-    def __init__(self, lags: List[int], columns: List, name: Optional[str] = None, column_rename= None):
+    def __init__(self, lags: List[int], columns: List = None, top_corr=20, name: Optional[str] = None, column_rename= None):
         super().__init__(name)
         self.lags = lags
         self.columns = columns
         self.all = all
         self.column_rename = column_rename
-
+        self.top_corr = top_corr
 
     def execute(self, df: pd.DataFrame) -> dict:
         df = df.sort_values(by=['product_id', 'customer_id', 'fecha'])
         # Crear lags usando groupby y shift (vectorizado)
         grouped = df.groupby(['product_id', 'customer_id'])
+        # si self.columns es None, tomo las top_corr columnas con mayor correlación con el target
+        if self.columns is None:
+            target = df.groupby(["customer_id", "product_id"])["tn"].shift(-2)
+            numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+            # obtengo las 20 columnas con mayor correlación con el target
+            correlation = df[numeric_cols].corrwith(target).abs().sort_values(ascending=False)
+            top_20_cols = correlation.head(20).index.tolist()
+            self.columns = top_20_cols
         for column in self.columns:
             for lag in self.lags:
                 c = self.column_rename or column

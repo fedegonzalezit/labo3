@@ -183,7 +183,7 @@ class PipelineStep(ABC, CachedPipelineMixin):
         self._name = name or self.__class__.__name__
 
     @abstractmethod
-    def execute(self, *args: Any, **kwargs: Any) -> None:
+    def execute(self, *args: Any, **kwargs: Any) -> dict:
         """
         Execute the pipeline step.
     
