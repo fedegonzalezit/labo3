@@ -1,3 +1,13 @@
+# COMO REPRODUCIR LA PREDICCION FINAL
+
+La carpeta SUBMIT_KAGGLE_FINAL contiene los scripts necesarios para reproducir los experimetos:
+- Agregar en esa carpeta los archivos sell-in.txt, tb_productos.txt, tb_stops.txt y product_id_apredecir201912.txt ya que los txt estan ignorados en el repo
+- primero se ejecute el jupyner notebook creador_dataset.ipynb que crea el dataset de 17millones de filas con 0
+- luego se ejecute fe_super_light.py que toma este dataset, agrupa por producto_id y calcula todas las features necesarias
+- Por ultimo el jupyter notebook exp_multimodel_ensamble_3.ipynb entrena los modelos y realiza la prediccion
+- El archivo genera varias submissions pero la que se utilizo es submission_ridge_*
+
+
 # Pipeline System Documentation
 
 This documentation will help you understand how to create and run your own data processing experiments using our pipeline system. The system is designed to be flexible and easy to use.
